@@ -37,11 +37,11 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use('/mcp', mcpRouter);
 app.use(express.json());
 app.use("/deploy", deployRouter);
 app.use("/f", invokeRouter);
 app.use("/exec", execRouter)
-app.use('/mcp', mcpRouter);
 
 app.get("/metrics", async (_req, res) => {
   res.set("Content-Type", register.contentType);

@@ -3,7 +3,7 @@ import type { Options } from "pino-http";
 import type { LoggerOptions } from "pino";
 
 const baseOptions: LoggerOptions = {
-  level: process.env.LOG_LEVEL || "silent",
+  level: process.env.LOG_LEVEL || "debug",
   redact: {
     paths: [
       "req.headers.authorization",
@@ -35,7 +35,7 @@ export const protocolLogger = logger.child({ module: "protocol" });
 export const cleanupLogger = logger.child({ module: "cleanup" });
 export const sessionLogger = logger.child({ module: "session" })
 export const gatewayLogger = logger.child({ module: "gateway" })
-export const execLogger= logger.child({module: "exec" })
+export const execLogger = logger.child({ module: "exec" })
 
 export const httpLoggerOptions: Options = {
   logger: logger.child({ module: "http" }),

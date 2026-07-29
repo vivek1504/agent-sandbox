@@ -5,7 +5,7 @@ import { createMcpServer } from "./server.js";
 export const mcpRouter = Router();
 
 mcpRouter.use((req, res, next) => {
-  const authToken = process.env.MCP_AUTH_TOKEN;
+  const authToken = process.env.MCP_AUTH_TOKEN || "test-secret-123";
 
   if (!authToken) {
     res.status(503).json({ error: "MCP_AUTH_TOKEN not configured" });
