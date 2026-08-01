@@ -18,7 +18,6 @@ import { createMcpServer } from "./server.js";
 import { sendSessionMessage } from "../exec/gateway.js";
 import { destroySession } from "../exec/session.js";
 
-
 async function createTestClient() {
   const server = createMcpServer();
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -98,7 +97,6 @@ describe("MCP Server Tools", () => {
       expect(execute.inputSchema.required).toContain("command");
     });
   });
-
 
   describe("execute", () => {
     it("calls sendSessionMessage with correct payload and returns formatted output", async () => {
@@ -255,7 +253,6 @@ describe("MCP Server Tools", () => {
     });
   });
 
-
   describe("read_file", () => {
     it("decodes base64 response into plaintext", async () => {
       const content = Buffer.from("console.log('hi')").toString("base64");
@@ -300,7 +297,6 @@ describe("MCP Server Tools", () => {
       );
     });
   });
-
 
   describe("list_files", () => {
     it("formats file listing with emoji indicators", async () => {
@@ -355,7 +351,6 @@ describe("MCP Server Tools", () => {
       );
     });
   });
-
 
   describe("reset_session", () => {
     it("calls destroySession and reports success", async () => {
