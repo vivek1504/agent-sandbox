@@ -1,0 +1,11 @@
+app
+bin
+dev
+lib
+mnt
+proc
+sys
+tmp
+lib64
+init
+workspace
