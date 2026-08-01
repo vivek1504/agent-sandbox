@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// Mock the gateway — this is the seam between MCP logic and VM infrastructure
 vi.mock("../exec/gateway.js", () => ({
   sendSessionMessage: vi.fn(),
 }));
@@ -19,7 +18,6 @@ import { createMcpServer } from "./server.js";
 import { sendSessionMessage } from "../exec/gateway.js";
 import { destroySession } from "../exec/session.js";
 
-// ── Helpers ────────────────────────────────────────────────────────
 
 async function createTestClient() {
   const server = createMcpServer();
@@ -46,10 +44,6 @@ function textOf(result: any): string {
   return result.content?.find((c: any) => c.type === "text")?.text ?? "";
 }
 
-/**
- * Creates a mock implementation for sendSessionMessage that optionally
- * emits stream chunks before returning the response.
- */
 function mockSendSession(response: any, streamChunks?: any[]) {
   return vi.fn(async (_sessionId: string, _message: any, onStream?: (chunk: any) => void) => {
     for (const chunk of streamChunks || []) {
@@ -59,7 +53,6 @@ function mockSendSession(response: any, streamChunks?: any[]) {
   });
 }
 
-// ── Tests ──────────────────────────────────────────────────────────
 
 describe("MCP Server Tools", () => {
   let client: Client;
@@ -76,7 +69,6 @@ describe("MCP Server Tools", () => {
     await cleanup();
   });
 
-  // ── Tool Discovery ─────────────────────────────────────────────
 
   describe("listTools", () => {
     it("lists all 5 tools with correct names", async () => {
@@ -107,7 +99,6 @@ describe("MCP Server Tools", () => {
     });
   });
 
-  // ── execute ────────────────────────────────────────────────────
 
   describe("execute", () => {
     it("calls sendSessionMessage with correct payload and returns formatted output", async () => {
@@ -127,7 +118,6 @@ describe("MCP Server Tools", () => {
         },
       });
 
-      // Verify gateway was called with the right shape
       expect(sendSessionMessage).toHaveBeenCalledWith(
         "s1",
         expect.objectContaining({
@@ -211,13 +201,11 @@ describe("MCP Server Tools", () => {
         arguments: { sessionId: "s1", command: "echo" },
       });
 
-      // exitCode defaults to -1 when missing
       expect(textOf(result)).toContain("exit code: -1");
       expect(result.isError).toBe(true);
     });
   });
 
-  // ── write_file ─────────────────────────────────────────────────
 
   describe("write_file", () => {
     it("base64-encodes content and sends write_file message", async () => {
@@ -241,7 +229,6 @@ describe("MCP Server Tools", () => {
       expect(message.type).toBe("write_file");
       expect(message.path).toBe("test.js");
 
-      // Verify the content was base64-encoded
       const decoded = Buffer.from(message.content, "base64").toString("utf-8");
       expect(decoded).toBe("hello world\n");
 
@@ -268,7 +255,6 @@ describe("MCP Server Tools", () => {
     });
   });
 
-  // ── read_file ──────────────────────────────────────────────────
 
   describe("read_file", () => {
     it("decodes base64 response into plaintext", async () => {
@@ -315,7 +301,6 @@ describe("MCP Server Tools", () => {
     });
   });
 
-  // ── list_files ─────────────────────────────────────────────────
 
   describe("list_files", () => {
     it("formats file listing with emoji indicators", async () => {
@@ -371,7 +356,6 @@ describe("MCP Server Tools", () => {
     });
   });
 
-  // ── reset_session ──────────────────────────────────────────────
 
   describe("reset_session", () => {
     it("calls destroySession and reports success", async () => {
