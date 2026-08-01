@@ -87,7 +87,7 @@ export async function configureVM(
     drive_id: "rootfs",
     path_on_host: image,
     is_root_device: true,
-    is_read_only: false,
+    is_read_only: true,
   });
   firecrackerLogger.debug({ functionId, image }, "rootfs drive attached");
 
