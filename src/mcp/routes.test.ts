@@ -17,7 +17,7 @@ vi.mock("@modelcontextprotocol/sdk/server/sse.js", () => {
   };
 });
 
-vi.mock("../exec/session.js", () => ({
+vi.mock("../session/session.js", () => ({
   destroySession: vi.fn(),
   createSession: vi.fn(),
   getSession: vi.fn(),
@@ -26,15 +26,9 @@ vi.mock("../exec/session.js", () => ({
   startSessionReaper: vi.fn(),
 }));
 
-vi.mock("../exec/gateway.js", () => ({
+vi.mock("../session/gateway.js", () => ({
   sendSessionMessage: vi.fn(),
   ensureSession: vi.fn(),
-}));
-
-vi.mock("../runtime/scheduler.js", () => ({
-  enqueueRequest: vi.fn(),
-  resetSchedulerState: vi.fn(),
-  notifyVmDestroyed: vi.fn(),
 }));
 
 import supertest from "supertest";

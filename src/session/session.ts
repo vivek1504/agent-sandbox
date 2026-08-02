@@ -1,13 +1,18 @@
-import { runtimeStore } from "../runtime/store.js";
-import { cleanupVm } from "../runtime/cleanup.js";
-import { sessionLogger } from "../utils/logger.js";
-import { execSessionsActive, execSessionDurationSeconds } from "../utils/metrics.js";
+import { cleanupVm } from "../vm/cleanup.js";
+import type { Vm } from "../vm/vm-manager.js";
+import { sessionLogger } from "../logger.js";
+import {
+  execSessionsActive,
+  execSessionDurationSeconds,
+} from "../metrics.js";
 
 export interface Session {
   sessionId: string;
   createdAt: number;
   lastActivityAt: number;
   state: "creating" | "active" | "destroying";
+  vm?: Vm;
+  creation?: Promise<Vm> | undefined;
 }
 
 const sessions = new Map<string, Session>();
@@ -39,23 +44,18 @@ export async function destroySession(sessionId: string): Promise<boolean> {
 
   session.state = "destroying";
 
-  const fn = runtimeStore.functions.get(sessionId);
-  if (fn) {
-    for (const vm of [...fn.vms]) {
-      await cleanupVm(fn, vm);
-    }
-    runtimeStore.functions.delete(sessionId);
+  try {
+    await session.creation;
+  } catch {
+    // VM creation already failed; there is no VM to clean up.
   }
+  if (session.vm) await cleanupVm(sessionId, session.vm);
 
   sessions.delete(sessionId);
   execSessionsActive.dec();
   execSessionDurationSeconds.observe((Date.now() - session.createdAt) / 1000);
   sessionLogger.info({ sessionId }, "session destroyed");
   return true;
-}
-
-export function getActiveSessions(): number {
-  return sessions.size;
 }
 
 export function getAllSessions(): Session[] {
@@ -67,8 +67,11 @@ export function startSessionReaper(ttlMs: number = 30 * 60 * 1000): void {
     const now = Date.now();
     for (const [id, session] of sessions) {
       if (now - session.lastActivityAt > ttlMs && session.state === "active") {
-        sessionLogger.info({ sessionId: id, idleMs: now - session.lastActivityAt }, "reaping idle session");
-        destroySession(id).catch(err => {
+        sessionLogger.info(
+          { sessionId: id, idleMs: now - session.lastActivityAt },
+          "reaping idle session",
+        );
+        destroySession(id).catch((err) => {
           sessionLogger.error({ sessionId: id, err }, "session reap failed");
         });
       }

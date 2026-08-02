@@ -6,13 +6,6 @@ const path = require("path");
 const WORKSPACE = "/workspace";
 const activeProcesses = new Map();
 
-let legacyHandler = null;
-try {
-  const userModule = require("/app/function/server.js");
-  legacyHandler = userModule.handler;
-} catch {
-}
-
 const handlers = {
   execute: handleExecute,
   write_file: handleWriteFile,
@@ -42,15 +35,16 @@ const server = net.createServer((socket) => {
           continue;
         }
 
-        if (legacyHandler) {
-          const result = await legacyHandler(msg);
-          socket.write(JSON.stringify({ type: "response", data: result }) + "\n");
-          continue;
-        }
-
-        sendError(socket, msg.id || "unknown", `Unknown message type: ${msg.type}`, -1);
+        sendError(
+          socket,
+          msg.id || "unknown",
+          `Unknown message type: ${msg.type}`,
+          -1,
+        );
       } catch (err) {
-        socket.write(JSON.stringify({ type: "error", error: err.message }) + "\n");
+        socket.write(
+          JSON.stringify({ type: "error", error: err.message }) + "\n",
+        );
       }
     }
   });
@@ -83,15 +77,25 @@ function handleExecute(socket, msg) {
   const startTime = Date.now();
 
   proc.stdout.on("data", (chunk) => {
-    socket.write(JSON.stringify({
-      type: "stream", id, stream: "stdout", data: chunk.toString()
-    }) + "\n");
+    socket.write(
+      JSON.stringify({
+        type: "stream",
+        id,
+        stream: "stdout",
+        data: chunk.toString(),
+      }) + "\n",
+    );
   });
 
   proc.stderr.on("data", (chunk) => {
-    socket.write(JSON.stringify({
-      type: "stream", id, stream: "stderr", data: chunk.toString()
-    }) + "\n");
+    socket.write(
+      JSON.stringify({
+        type: "stream",
+        id,
+        stream: "stderr",
+        data: chunk.toString(),
+      }) + "\n",
+    );
   });
 
   const timer = setTimeout(() => {
@@ -105,14 +109,17 @@ function handleExecute(socket, msg) {
     clearTimeout(timer);
     activeProcesses.delete(id);
 
-    socket.write(JSON.stringify({
-      type: "response", id,
-      data: {
-        exitCode: exitCode ?? -1,
-        signal: signal || undefined,
-        duration: Date.now() - startTime,
-      }
-    }) + "\n");
+    socket.write(
+      JSON.stringify({
+        type: "response",
+        id,
+        data: {
+          exitCode: exitCode ?? -1,
+          signal: signal || undefined,
+          duration: Date.now() - startTime,
+        },
+      }) + "\n",
+    );
   });
 
   proc.on("error", (err) => {
@@ -133,14 +140,17 @@ function handleWriteFile(socket, msg) {
   try {
     fs.mkdirSync(path.dirname(absPath), { recursive: true });
 
-    const decoded = Buffer.from(content, "base64")
-    fs.writeFileSync(absPath, decoded)
-    const bytesWritten = decoded.length
+    const decoded = Buffer.from(content, "base64");
+    fs.writeFileSync(absPath, decoded);
+    const bytesWritten = decoded.length;
 
-    socket.write(JSON.stringify({
-      type: "response", id,
-      data: { bytesWritten }
-    }) + "\n");
+    socket.write(
+      JSON.stringify({
+        type: "response",
+        id,
+        data: { bytesWritten },
+      }) + "\n",
+    );
   } catch (err) {
     sendError(socket, id, err.message, -1);
   }
@@ -157,13 +167,16 @@ function handleReadFile(socket, msg) {
   try {
     const raw = fs.readFileSync(absPath);
     const content = raw.toString("base64");
-    socket.write(JSON.stringify({
-      type: "response", id,
-      data: {
-        content,
-        size: raw.length,
-      }
-    }) + "\n");
+    socket.write(
+      JSON.stringify({
+        type: "response",
+        id,
+        data: {
+          content,
+          size: raw.length,
+        },
+      }) + "\n",
+    );
   } catch (err) {
     sendError(socket, id, err.message, -1);
   }
@@ -181,10 +194,13 @@ function handleListFiles(socket, msg) {
     const files = [];
     listDir(absPath, WORKSPACE, recursive, files);
 
-    socket.write(JSON.stringify({
-      type: "response", id,
-      data: { files }
-    }) + "\n");
+    socket.write(
+      JSON.stringify({
+        type: "response",
+        id,
+        data: { files },
+      }) + "\n",
+    );
   } catch (err) {
     sendError(socket, id, err.message, -1);
   }

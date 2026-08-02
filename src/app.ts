@@ -1,14 +1,11 @@
 import express from "express";
 import { pinoHttp } from "pino-http";
 import crypto from "crypto";
-import { deployRouter } from "./routes/deploy.js";
-import { invokeRouter } from "./routes/invoke.js";
-import { httpLoggerOptions } from "./utils/logger.js";
-import { register, httpRequestDuration, httpRequestsTotal } from "./utils/metrics.js";
-import { deployQueue } from "./deploy/queue.js";
+import { httpLoggerOptions } from "./logger.js";
+import { register, httpRequestDuration, httpRequestsTotal } from "./metrics.js";
 import { execRouter } from "./routes/exec.js";
 import { mcpRouter } from "./mcp/routes.js";
-import { startSessionReaper } from "./exec/session.js";
+import { startSessionReaper } from "./session/session.js";
 
 export const app = express();
 
@@ -39,8 +36,6 @@ app.use((req, res, next) => {
 
 app.use('/mcp', mcpRouter);
 app.use(express.json());
-app.use("/deploy", deployRouter);
-app.use("/f", invokeRouter);
 app.use("/exec", execRouter)
 
 app.get("/metrics", async (_req, res) => {
@@ -54,7 +49,6 @@ app.get("/health", (_req, res) => {
 
 app.get("/ready", (_req, res) => {
   const checks = {
-    queueAvailable: deployQueue.size < 50,
     memoryOk: process.memoryUsage().heapUsed < 500 * 1024 * 1024,
   };
   const healthy = Object.values(checks).every(Boolean);

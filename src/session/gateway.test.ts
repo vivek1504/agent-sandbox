@@ -2,43 +2,34 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PassThrough } from "stream";
 import type { Socket } from "net";
 
-vi.mock("../runtime/vm-manager.js", () => ({
-  createVm: vi.fn(async (_fid: string, fn: any) => {
-    const vm = {
+vi.mock("../vm/vm-manager.js", () => ({
+  createVm: vi.fn(async () => ({
       id: "mock-vm",
       state: "ready" as const,
       firecrackerProcess: { kill: vi.fn() },
       apiSock: "/tmp/mock-api.sock",
       vsock: "/tmp/mock-vsock.sock",
-      idleTime: Date.now(),
-    };
-    fn.vms.push(vm);
-    fn.readyVms.add(vm);
-    return vm;
-  }),
+    })),
 }));
 
-vi.mock("../runtime/transport.js", () => ({
+vi.mock("../vm/transport.js", () => ({
   getVmSocket: vi.fn(),
   connectVsock: vi.fn(),
   sendMessage: vi.fn(),
   sendRequest: vi.fn(),
 }));
 
-vi.mock("../runtime/protocol.js", () => ({
+vi.mock("../vm/protocol.js", () => ({
   readVsockResponse: vi.fn(),
   buildPayload: vi.fn(),
 }));
 
 import { ensureSession, sendSessionMessage } from "./gateway.js";
-import { runtimeStore } from "../runtime/store.js";
-import { createVm } from "../runtime/vm-manager.js";
-import { getVmSocket } from "../runtime/transport.js";
-import { readVsockResponse } from "../runtime/protocol.js";
+import { createVm } from "../vm/vm-manager.js";
+import { getVmSocket } from "../vm/transport.js";
+import { readVsockResponse } from "../vm/protocol.js";
 import * as sessionModule from "./session.js";
 import { getSession, createSession } from "./session.js";
-import { Deque } from "../runtime/deque.js";
-
 
 function makeFakeSocket() {
   const stream = new PassThrough();
@@ -53,31 +44,17 @@ function prePopulateSession(sessionId: string) {
     firecrackerProcess: { kill: vi.fn() },
     apiSock: "/tmp/existing-api.sock",
     vsock: "/tmp/existing-vsock.sock",
-    idleTime: Date.now(),
   };
-
-  const fn = {
-    functionId: sessionId,
-    queue: new Deque(),
-    vms: [vm],
-    readyVms: new Set([vm]),
-    weight: 1,
-    inflightCount: 0,
-    deficit: 0,
-    pendingCreations: 0,
-  };
-
-  runtimeStore.functions.set(sessionId, fn as any);
   createSession(sessionId);
   const session = getSession(sessionId)!;
   session.state = "active";
+  session.vm = vm as any;
 
-  return { vm, fn };
+  return { vm };
 }
 
 describe("ensureSession", () => {
   beforeEach(() => {
-    runtimeStore.reset();
     vi.clearAllMocks();
   });
 
@@ -85,9 +62,7 @@ describe("ensureSession", () => {
     const vm = await ensureSession("new-session");
 
     expect(createVm).toHaveBeenCalledWith(
-      "new-session",
-      expect.any(Object),
-      "__exec__",
+      "new-session", "__exec__",
     );
     expect(vm).toBeDefined();
     expect(vm.id).toBe("mock-vm");
@@ -102,39 +77,35 @@ describe("ensureSession", () => {
     expect(vm.id).toBe(existingVm.id);
   });
 
+  it("creates only one VM for concurrent requests to a new session", async () => {
+    const [first, second] = await Promise.all([
+      ensureSession("concurrent-session"),
+      ensureSession("concurrent-session"),
+    ]);
+
+    expect(createVm).toHaveBeenCalledTimes(1);
+    expect(first).toBe(second);
+  });
+
   it("provisions new VM if session exists but has no VMs", async () => {
-    const fn = {
-      functionId: "empty-vm-session",
-      queue: new Deque(),
-      vms: [] as any[],
-      readyVms: new Set(),
-      weight: 1,
-      inflightCount: 0,
-      deficit: 0,
-      pendingCreations: 0,
-    };
-    runtimeStore.functions.set("empty-vm-session", fn as any);
     createSession("empty-vm-session");
 
     await ensureSession("empty-vm-session");
 
     expect(createVm).toHaveBeenCalledWith(
-      "empty-vm-session",
-      expect.any(Object),
-      "__exec__",
+      "empty-vm-session", "__exec__",
     );
   });
 
-  it("registers function in runtimeStore on first call", async () => {
-    expect(runtimeStore.functions.has("brand-new")).toBe(false);
+  it("stores a newly created VM on the session", async () => {
+    expect(getSession("brand-new")?.vm).toBeUndefined();
     await ensureSession("brand-new");
-    expect(runtimeStore.functions.has("brand-new")).toBe(true);
+    expect(getSession("brand-new")?.vm?.id).toBe("mock-vm");
   });
 });
 
 describe("sendSessionMessage", () => {
   beforeEach(() => {
-    runtimeStore.reset();
     vi.clearAllMocks();
   });
 
