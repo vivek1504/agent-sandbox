@@ -22,20 +22,8 @@ const baseOptions: LoggerOptions = {
 
 export const logger = pino(baseOptions);
 
-export const deployLogger = logger.child({ module: "deploy" });
-export const pipelineLogger = logger.child({ module: "pipeline" });
-export const firecrackerLogger = logger.child({ module: "firecracker" });
-export const rootfsLogger = logger.child({ module: "rootfs" });
-export const queueLogger = logger.child({ module: "queue" });
-export const runtimeLogger = logger.child({ module: "runtime" });
-export const schedulerLogger = logger.child({ module: "scheduler" });
-export const vmManagerLogger = logger.child({ module: "vm-manager" });
-export const transportLogger = logger.child({ module: "transport" });
-export const protocolLogger = logger.child({ module: "protocol" });
-export const cleanupLogger = logger.child({ module: "cleanup" });
-export const sessionLogger = logger.child({ module: "session" })
-export const gatewayLogger = logger.child({ module: "gateway" })
-export const execLogger = logger.child({ module: "exec" })
+export const vmLogger = logger.child({ module: "vm" });
+export const sessionLogger = logger.child({ module: "session" });
 
 export const httpLoggerOptions: Options = {
   logger: logger.child({ module: "http" }),

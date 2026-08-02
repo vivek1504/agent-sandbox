@@ -1,18 +1,6 @@
 import type { Socket } from "net";
-import { protocolLogger } from "../utils/logger.js";
-import { vsockErrors } from "../utils/metrics.js";
-
-export function buildPayload(req: any, subPath: string): string {
-  return (
-    JSON.stringify({
-      httpMethod: req.method,
-      path: subPath,
-      headers: req.headers,
-      query: req.query,
-      body: JSON.stringify(req.body || {}),
-    }) + "\n"
-  );
-}
+import { vmLogger } from "../logger.js";
+import { vsockErrors } from "../metrics.js";
 
 export function readVsockResponse(
   socket: Socket,
@@ -33,7 +21,7 @@ export function readVsockResponse(
     };
 
     const timer = setTimeout(() => {
-      protocolLogger.error({ timeoutMs: timeout }, "function execution timeout");
+      vmLogger.error({ timeoutMs: timeout }, "function execution timeout");
       vsockErrors.inc({ error_type: "timeout" });
       socket.destroy();
       reject(new Error("Function timeout"));
@@ -71,7 +59,7 @@ export function readVsockResponse(
             clearTimeout(timer);
             cleanup();
             if (msg.type === "error") {
-              protocolLogger.warn(
+              vmLogger.warn(
                 { errorData: msg.data, errorMsg: msg.error },
                 "VM returned error response",
               );
@@ -81,7 +69,7 @@ export function readVsockResponse(
           }
         } catch {
           vsockErrors.inc({ error_type: "parse_error" });
-          protocolLogger.error({ rawLine: line }, "invalid JSON received from VM");
+          vmLogger.error({ rawLine: line }, "invalid JSON received from VM");
         }
       }
     };
@@ -90,7 +78,7 @@ export function readVsockResponse(
       clearTimeout(timer);
       cleanup();
       vsockErrors.inc({ error_type: "connection_error" });
-      protocolLogger.error({ err }, "vsock read error");
+      vmLogger.error({ err }, "vsock read error");
       reject(err);
     };
 
@@ -98,7 +86,7 @@ export function readVsockResponse(
       clearTimeout(timer);
       cleanup();
       vsockErrors.inc({ error_type: "connection_closed" });
-      protocolLogger.error("vsock connection closed before response received");
+      vmLogger.error("vsock connection closed before response received");
       reject(new Error("Connection closed before response"));
     };
 

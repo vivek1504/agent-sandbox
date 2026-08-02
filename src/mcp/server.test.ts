@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-vi.mock("../exec/gateway.js", () => ({
+vi.mock("../session/gateway.js", () => ({
   sendSessionMessage: vi.fn(),
 }));
 
-vi.mock("../exec/session.js", () => ({
+vi.mock("../session/session.js", () => ({
   destroySession: vi.fn(),
   createSession: vi.fn(),
   getSession: vi.fn(),
@@ -15,8 +15,8 @@ vi.mock("../exec/session.js", () => ({
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "./server.js";
-import { sendSessionMessage } from "../exec/gateway.js";
-import { destroySession } from "../exec/session.js";
+import { sendSessionMessage } from "../session/gateway.js";
+import { destroySession } from "../session/session.js";
 
 async function createTestClient() {
   const server = createMcpServer();

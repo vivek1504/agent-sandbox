@@ -1,7 +1,6 @@
 import { Router } from "express";
-import { sendSessionMessage, ensureSession } from "../exec/gateway.js";
-import { destroySession, getSession, getAllSessions } from "../exec/session.js";
-import { execLogger } from "../utils/logger.js";
+import { sendSessionMessage, ensureSession } from "../session/gateway.js";
+import { destroySession, getSession, getAllSessions } from "../session/session.js";
 
 export const execRouter = Router();
 

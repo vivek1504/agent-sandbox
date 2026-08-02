@@ -3,43 +3,55 @@ import net from "net";
 import axios from "axios";
 import path from "path";
 import crypto from "crypto";
-import { vmManagerLogger } from "../utils/logger.js";
-import { vmCount, vmCreationTime, vmCreationTotal } from "../utils/metrics.js";
+import { vmLogger } from "../logger.js";
+import { vmCount, vmCreationTime, vmCreationTotal } from "../metrics.js";
 
-import type { RuntimeFunction, Vm } from "../types/types.js";
+import type { ChildProcessWithoutNullStreams } from "child_process";
+import type { Socket } from "net";
 
-export async function createVm(
-  functionId: string,
-  fn: RuntimeFunction,
-  snapshotId?: string,
-): Promise<Vm> {
+export type VmState = "creating" | "restoring" | "ready" | "busy" | "dead";
+
+export interface Vm {
+  id: string;
+  state: VmState;
+  firecrackerProcess: ChildProcessWithoutNullStreams;
+  apiSock: string;
+  vsock: string;
+  socket?: Socket;
+  cleaned?: boolean;
+}
+
+export async function createVm(sessionId: string, snapshotId?: string): Promise<Vm> {
   const instanceId = crypto.randomBytes(4).toString("hex");
-  const apiSock = `/tmp/firecracker-${functionId}-${instanceId}.socket`;
-  const vsock = `/tmp/vsock-${functionId}-${instanceId}.sock`;
+  const apiSock = `/tmp/firecracker-${sessionId}-${instanceId}.socket`;
+  const vsock = `/tmp/vsock-${sessionId}-${instanceId}.sock`;
   const start = performance.now();
 
-  vmManagerLogger.info(
-    { functionId, instanceId, apiSock, vsock },
+  vmLogger.info(
+    { sessionId, instanceId, apiSock, vsock },
     "creating new VM instance",
   );
 
-  vmCount.inc({ function_id: functionId, state: "creating" });
+  vmCount.inc({ function_id: sessionId, state: "creating" });
 
   try {
     const fc = spawn("firecracker", ["--api-sock", apiSock]);
 
     fc.on("error", (err) => {
-      vmManagerLogger.error({ instanceId, err }, "firecracker process error");
+      vmLogger.error({ instanceId, err }, "firecracker process error");
     });
 
     fc.on("exit", (code, signal) => {
-      vmManagerLogger.info({ instanceId, exitCode: code, signal }, "firecracker process exited");
+      vmLogger.info(
+        { instanceId, exitCode: code, signal },
+        "firecracker process exited",
+      );
     });
 
     await waitForFirecrackerApiSocket(apiSock);
 
     const client = createFcClient(apiSock);
-    await restoreVm(client, snapshotId || functionId, vsock);
+    await restoreVm(client, snapshotId || sessionId, vsock);
 
     const vm: Vm = {
       id: instanceId,
@@ -47,20 +59,20 @@ export async function createVm(
       firecrackerProcess: fc,
       apiSock,
       vsock,
-      idleTime: Date.now(),
     };
-
-    fn.vms.push(vm);
-    fn.readyVms.add(vm);
 
     const durationSec = (performance.now() - start) / 1000;
     vmCreationTime.observe(durationSec);
     vmCreationTotal.inc({ status: "success" });
-    vmCount.dec({ function_id: functionId, state: "creating" });
-    vmCount.inc({ function_id: functionId, state: "ready" });
+    vmCount.dec({ function_id: sessionId, state: "creating" });
+    vmCount.inc({ function_id: sessionId, state: "ready" });
 
-    vmManagerLogger.info(
-      { functionId, instanceId, totalVms: fn.vms.length, durationMs: durationSec * 1000 },
+    vmLogger.info(
+      {
+        sessionId,
+        instanceId,
+        durationMs: durationSec * 1000,
+      },
       "VM instance created and ready",
     );
     return vm;
@@ -68,10 +80,10 @@ export async function createVm(
     const durationSec = (performance.now() - start) / 1000;
     vmCreationTime.observe(durationSec);
     vmCreationTotal.inc({ status: "error" });
-    vmCount.dec({ function_id: functionId, state: "creating" });
+    vmCount.dec({ function_id: sessionId, state: "creating" });
 
-    vmManagerLogger.error(
-      { functionId, instanceId, err, durationMs: durationSec * 1000 },
+    vmLogger.error(
+      { sessionId, instanceId, err, durationMs: durationSec * 1000 },
       "VM creation failed",
     );
     throw err;
@@ -90,7 +102,7 @@ export async function waitForFirecrackerApiSocket(
 
       client.once("connect", () => {
         client.destroy();
-        vmManagerLogger.debug(
+        vmLogger.debug(
           { path, elapsedMs: Date.now() - start },
           "API socket connected",
         );
@@ -101,7 +113,10 @@ export async function waitForFirecrackerApiSocket(
         client.destroy();
 
         if (Date.now() - start > timeout) {
-          vmManagerLogger.error({ path, timeoutMs: timeout }, "API socket connection timeout");
+          vmLogger.error(
+            { path, timeoutMs: timeout },
+            "API socket connection timeout",
+          );
           return reject(new Error("socket timeout"));
         }
         setTimeout(tryConnect, 50);
@@ -127,7 +142,7 @@ export async function restoreVm(
   functionId: string,
   vsock: string,
 ) {
-  vmManagerLogger.debug({ functionId, vsock }, "restoring VM from snapshot");
+  vmLogger.debug({ functionId, vsock }, "restoring VM from snapshot");
 
   await client.put("/snapshot/load", {
     snapshot_path: path.resolve(`snapshot/snapshot-${functionId}`),
@@ -142,5 +157,5 @@ export async function restoreVm(
     },
   });
 
-  vmManagerLogger.debug({ functionId }, "VM restored from snapshot");
+  vmLogger.debug({ functionId }, "VM restored from snapshot");
 }

@@ -1,32 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { buildPayload, readVsockResponse } from "./protocol.js";
+import { readVsockResponse } from "./protocol.js";
 import { PassThrough } from "stream";
 import type { Socket } from "net";
-
-describe("buildPayload", () => {
-  it("serializes request into JSON with newline", () => {
-    const req = {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      query: { page: "1" },
-      body: { name: "test" },
-    };
-
-    const result = buildPayload(req, "/greet");
-    const parsed = JSON.parse(result.trim());
-
-    expect(parsed.httpMethod).toBe("POST");
-    expect(parsed.path).toBe("/greet");
-    expect(parsed.headers["content-type"]).toBe("application/json");
-    expect(result.endsWith("\n")).toBe(true);
-  });
-
-  it("defaults body to empty object when undefined", () => {
-    const req = { method: "GET", headers: {}, query: {} };
-    const parsed = JSON.parse(buildPayload(req, "/").trim());
-    expect(parsed.body).toBe("{}");
-  });
-});
 
 describe("readVsockResponse", () => {
   function makeFakeSocket() {

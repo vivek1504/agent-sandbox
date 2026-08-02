@@ -1,45 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { waitForVMReady, waitForFile, createFcCient } from "./firecracker.js";
 import { EventEmitter } from "events";
 import fs from "fs";
+import { createFcClient, waitForFile, waitForVmReady } from "./run_deploy.js";
 
-describe("waitForVMReady", () => {
-  function makeFakeFC() {
+describe("waitForVmReady", () => {
+  function makeFakeFirecracker() {
     return { stdout: new EventEmitter() };
   }
 
   it("resolves when READY arrives in one chunk", async () => {
-    const fc = makeFakeFC();
-    const promise = waitForVMReady(fc);
+    const fc = makeFakeFirecracker();
+    const promise = waitForVmReady(fc);
     fc.stdout.emit("data", Buffer.from("booting...\nREADY\n"));
     await expect(promise).resolves.toBeUndefined();
   });
 
   it("resolves when READY is split across chunks", async () => {
-    const fc = makeFakeFC();
-    const promise = waitForVMReady(fc);
+    const fc = makeFakeFirecracker();
+    const promise = waitForVmReady(fc);
     fc.stdout.emit("data", Buffer.from("REA"));
     fc.stdout.emit("data", Buffer.from("DY"));
     await expect(promise).resolves.toBeUndefined();
-  });
-
-  it("rejects on timeout", async () => {
-    const fc = makeFakeFC();
-    const promise = new Promise<void>((resolve, reject) => {
-      let buffer = "";
-      const timeout = setTimeout(
-        () => reject(new Error("VM startup timeout")),
-        100,
-      );
-      fc.stdout.on("data", (d: Buffer) => {
-        buffer += d.toString();
-        if (buffer.includes("READY")) {
-          clearTimeout(timeout);
-          resolve();
-        }
-      });
-    });
-    await expect(promise).rejects.toThrow("VM startup timeout");
   });
 });
 
@@ -59,9 +40,9 @@ describe("waitForFile", () => {
   });
 });
 
-describe("createFcCient", () => {
-  it("creates axios client with socketPath", () => {
-    const client = createFcCient("/tmp/test.sock");
+describe("createFcClient", () => {
+  it("creates an axios client with socketPath", () => {
+    const client = createFcClient("/tmp/test.sock");
     expect(client.defaults.socketPath).toBe("/tmp/test.sock");
     expect(client.defaults.baseURL).toBe("http://localhost");
   });

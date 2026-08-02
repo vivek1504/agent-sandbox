@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { sendSessionMessage } from "../exec/gateway.js";
-import { destroySession } from "../exec/session.js";
+import { sendSessionMessage } from "../session/gateway.js";
+import { destroySession } from "../session/session.js";
 
 
 export function createMcpServer(): McpServer {
