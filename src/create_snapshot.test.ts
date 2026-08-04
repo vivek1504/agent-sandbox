@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { EventEmitter } from "events";
 import fs from "fs";
-import { createFcClient, waitForFile, waitForVmReady } from "./run_deploy.js";
+import { createFcClient, waitForFile, waitForVmReady } from "./create_snapshot.js";
 
 describe("waitForVmReady", () => {
   function makeFakeFirecracker() {
