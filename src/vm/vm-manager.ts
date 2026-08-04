@@ -5,6 +5,7 @@ import path from "path";
 import crypto from "crypto";
 import { vmLogger } from "../logger.js";
 import { vmCount, vmCreationTime, vmCreationTotal } from "../metrics.js";
+import { fileURLToPath } from "url";
 
 import type { ChildProcessWithoutNullStreams } from "child_process";
 import type { Socket } from "net";
@@ -21,6 +22,9 @@ export interface Vm {
   cleaned?: boolean;
 }
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const ROOT = path.resolve(__dirname, "../..")
+
 export async function createVm(sessionId: string, snapshotId?: string): Promise<Vm> {
   const instanceId = crypto.randomBytes(4).toString("hex");
   const apiSock = `/tmp/firecracker-${sessionId}-${instanceId}.socket`;
@@ -31,12 +35,10 @@ export async function createVm(sessionId: string, snapshotId?: string): Promise<
     { sessionId, instanceId, apiSock, vsock },
     "creating new VM instance",
   );
-
   vmCount.inc({ function_id: sessionId, state: "creating" });
 
   try {
     const fc = spawn("firecracker", ["--api-sock", apiSock]);
-
     fc.on("error", (err) => {
       vmLogger.error({ instanceId, err }, "firecracker process error");
     });
@@ -145,9 +147,18 @@ export async function restoreVm(
   vmLogger.debug({ functionId, vsock }, "restoring VM from snapshot");
 
   await client.put("/snapshot/load", {
-    snapshot_path: path.resolve(`snapshot/snapshot-${functionId}`),
+    snapshot_path: path.join(
+      ROOT,
+      "snapshot",
+      `snapshot-${functionId}`
+    ),
+
     mem_backend: {
-      backend_path: path.resolve(`mem/mem-${functionId}`),
+      backend_path: path.join(
+        ROOT,
+        "mem",
+        `mem-${functionId}`
+      ),
       backend_type: "File",
     },
     track_dirty_pages: true,

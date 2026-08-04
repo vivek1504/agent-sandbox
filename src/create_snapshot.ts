@@ -34,26 +34,37 @@ export function createFcClient(apiSock: string) {
 
 export async function configureVm(client: any, functionId: string, image: string) {
   await client.put("/machine-config", { vcpu_count: 1, mem_size_mib: 128 });
+
   await client.put("/boot-source", {
     kernel_image_path: path.resolve("vmlinux"),
     boot_args: "console=ttyS0 reboot=k panic=1 pci=off init=/init -- /start.sh",
   });
+
   await client.put("/drives/rootfs", {
     drive_id: "rootfs",
     path_on_host: image,
     is_root_device: true,
     is_read_only: true,
   });
+
   await client.put("/vsock", {
     vsock_id: "vsock0",
     guest_cid: Math.floor(Math.random() * 10000) + 3,
     uds_path: `/tmp/vsock-${functionId}.sock`,
   });
+
   await client.put("/logger", {
     log_path: "firecracker.log",
     level: "Debug",
     show_level: true,
   });
+
+  await client.put("/network-interfaces/eth0", {
+    iface_id: "eth0",
+    host_dev_name: "tap-bootstrap",
+    guest_mac: "02:FC:00:00:00:01",
+  });
+
   await client.put("/actions", { action_type: "InstanceStart" });
 }
 
@@ -76,11 +87,9 @@ async function main() {
   const apiSock = `/tmp/firecracker-${functionId}.socket`;
   const vsockPath = `/tmp/vsock-${functionId}.sock`;
 
-  // Clean up stale sockets from previous runs
   try { fs.unlinkSync(apiSock); } catch { }
   try { fs.unlinkSync(vsockPath); } catch { }
 
-  // Ensure snapshot/ and mem/ directories exist
   fs.mkdirSync("snapshot", { recursive: true });
   fs.mkdirSync("mem", { recursive: true });
 

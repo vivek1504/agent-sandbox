@@ -11,15 +11,19 @@ import {
 } from "../metrics.js";
 import crypto from "crypto";
 import { createVm, type Vm } from "../vm/vm-manager.js";
+import { log } from "../mcp/server.js";
 
 export async function ensureSession(sessionId: string): Promise<Vm> {
   let session = getSession(sessionId);
   session = session || createSession(sessionId);
+  log(session + " if present returns session.vm or creation")
   if (session.vm) return session.vm;
   if (session.creation) return session.creation;
 
+  log("creating session")
   session.creation = createVm(sessionId, "__exec__")
     .then(async (vm) => {
+      log("session creation completed")
       if (getSession(sessionId) !== session || session.state === "destroying") {
         await cleanupVm(sessionId, vm);
         throw new Error("Session was destroyed while its VM was being created");
@@ -41,13 +45,16 @@ export async function sendSessionMessage(
   onStream?: (chunk: any) => void,
   timeout: number = 60000,
 ): Promise<any> {
+  log("ensureSession")
   const vm = await ensureSession(sessionId);
   touchSession(sessionId);
 
   const id = message.id || crypto.randomUUID();
   const fullMessage = { ...message, id };
 
+  log("getVmSocket")
   const socket = await getVmSocket(vm);
+  log("socket.write")
   socket.write(JSON.stringify(fullMessage) + "\n");
 
   sessionLogger.debug(
@@ -60,6 +67,7 @@ export async function sendSessionMessage(
   let result;
 
   try {
+    log("readVsockResponse")
     result = await readVsockResponse(socket, timeout, onStream);
 
     if (message.type === "execute" && result.data?.exitCode !== undefined) {
@@ -67,7 +75,7 @@ export async function sendSessionMessage(
     } else if (message.type === "write_file" && result.data?.bytesWritten) {
       execWorkspaceBytesWritten.inc(result.data.bytesWritten);
     }
-
+    log("done")
     return { ...result, messageId: id };
   } catch (err) {
     status = "error";
