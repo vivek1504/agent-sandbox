@@ -8,13 +8,18 @@ export async function startFirecrackerProcess(apiSock: string) {
   const fc = spawn("firecracker", ["--api-sock", apiSock]);
 
   fc.on("error", (err) => console.error("Firecracker process error:", err));
-  fc.stderr.on("data", (data) => console.warn("Firecracker stderr:", data.toString().trim()));
+  fc.stderr.on("data", (data) =>
+    console.warn("Firecracker stderr:", data.toString().trim()),
+  );
 
   await waitForFile(apiSock);
   return fc;
 }
 
-export async function waitForFile(filePath: string, timeout = 5000): Promise<void> {
+export async function waitForFile(
+  filePath: string,
+  timeout = 5000,
+): Promise<void> {
   const start = Date.now();
   while (!fs.existsSync(filePath)) {
     if (Date.now() - start > timeout) {
@@ -32,7 +37,11 @@ export function createFcClient(apiSock: string) {
   });
 }
 
-export async function configureVm(client: any, functionId: string, image: string) {
+export async function configureVm(
+  client: any,
+  functionId: string,
+  image: string,
+) {
   await client.put("/machine-config", { vcpu_count: 1, mem_size_mib: 128 });
 
   await client.put("/boot-source", {
@@ -61,7 +70,7 @@ export async function configureVm(client: any, functionId: string, image: string
 
   await client.put("/network-interfaces/eth0", {
     iface_id: "eth0",
-    host_dev_name: "tap-bootstrap",
+    host_dev_name: "tap0",
     guest_mac: "02:FC:00:00:00:01",
   });
 
@@ -87,8 +96,12 @@ async function main() {
   const apiSock = `/tmp/firecracker-${functionId}.socket`;
   const vsockPath = `/tmp/vsock-${functionId}.sock`;
 
-  try { fs.unlinkSync(apiSock); } catch { }
-  try { fs.unlinkSync(vsockPath); } catch { }
+  try {
+    fs.unlinkSync(apiSock);
+  } catch {}
+  try {
+    fs.unlinkSync(vsockPath);
+  } catch {}
 
   fs.mkdirSync("snapshot", { recursive: true });
   fs.mkdirSync("mem", { recursive: true });
@@ -129,13 +142,23 @@ async function main() {
   console.log("Killing Firecracker process...");
   fc.kill("SIGKILL");
 
-  try { fs.unlinkSync(apiSock); } catch { }
-  try { fs.unlinkSync(vsockPath); } catch { }
+  try {
+    fs.unlinkSync(apiSock);
+  } catch {}
+  try {
+    fs.unlinkSync(vsockPath);
+  } catch {}
 
   console.log("\nDone! Files created:");
-  console.log(`  ${snapshotPath} (${(fs.statSync(snapshotPath).size / 1024).toFixed(0)} KB)`);
-  console.log(`  ${memPath} (${(fs.statSync(memPath).size / 1024 / 1024).toFixed(1)} MB)`);
-  console.log("\nYou can now start the server and use the /exec and /mcp endpoints.");
+  console.log(
+    `  ${snapshotPath} (${(fs.statSync(snapshotPath).size / 1024).toFixed(0)} KB)`,
+  );
+  console.log(
+    `  ${memPath} (${(fs.statSync(memPath).size / 1024 / 1024).toFixed(1)} MB)`,
+  );
+  console.log(
+    "\nYou can now start the server and use the /exec and /mcp endpoints.",
+  );
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

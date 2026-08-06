@@ -7,28 +7,22 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "start": "tsc -b && sudo -E node dist/server.js"
+    "start": "tsc -b && node dist/server.js",
+    "mcp": "tsc -b && node dist/mcp/stdio.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@types/express": "^5.0.6",
-    "@types/multer": "^2.1.0",
-    "adm-zip": "^0.5.16",
     "axios": "^1.13.6",
-    "child_process": "^1.0.2",
-    "crypto": "^1.0.1",
     "express": "^5.2.1",
-    "extract-zip": "^2.0.1",
-    "fs": "^0.0.1-security",
-    "multer": "^2.1.1",
-    "p-queue": "^9.2.0",
+    "netlink": "^0.3.0",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
-    "prom-client": "^15.1.3",
-    "unzipper": "^0.12.3"
+    "prom-client": "^15.1.3"
   },
   "devDependencies": {
     "@types/supertest": "^7.2.0",
