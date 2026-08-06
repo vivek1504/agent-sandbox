@@ -80,13 +80,9 @@ export async function configureVm(
 export function waitForVmReady(fc: { stdout: NodeJS.EventEmitter }) {
   return new Promise<void>((resolve, reject) => {
     let buffer = "";
-    const timeout = setTimeout(
-      () => reject(new Error("VM startup timeout")),
-      50_000,
-    );
+    const timeout = setTimeout(() => reject(new Error("VM startup timeout")), 50_000);
     fc.stdout.on("data", (data: Buffer) => {
       buffer += data.toString();
-      console.log(buffer);
       if (buffer.includes("READY")) {
         clearTimeout(timeout);
         setTimeout(resolve, 200);
