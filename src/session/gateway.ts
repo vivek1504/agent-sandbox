@@ -7,7 +7,7 @@ import {
   execMessageTotal,
   execMessageDurationSeconds,
   execProcessExitCode,
-  execWorkspaceBytesWritten
+  execWorkspaceBytesWritten,
 } from "../metrics.js";
 import crypto from "crypto";
 import { createVm, type Vm } from "../vm/vm-manager.js";
@@ -18,7 +18,7 @@ export async function ensureSession(sessionId: string): Promise<Vm> {
   if (session.vm) return session.vm;
   if (session.creation) return session.creation;
 
-  session.creation = createVm(sessionId, "__exec__")
+  session.creation = createVm(sessionId, "exec")
     .then(async (vm) => {
       if (getSession(sessionId) !== session || session.state === "destroying") {
         await cleanupVm(sessionId, vm);
@@ -52,7 +52,7 @@ export async function sendSessionMessage(
 
   sessionLogger.debug(
     { sessionId, messageType: message.type, messageId: id },
-    "message sent to VM"
+    "message sent to VM",
   );
 
   const startTime = process.hrtime.bigint();
@@ -63,7 +63,10 @@ export async function sendSessionMessage(
     result = await readVsockResponse(socket, timeout, onStream);
 
     if (message.type === "execute" && result.data?.exitCode !== undefined) {
-      execProcessExitCode.inc({ command: message.command, exit_code: result.data.exitCode.toString() });
+      execProcessExitCode.inc({
+        command: message.command,
+        exit_code: result.data.exitCode.toString(),
+      });
     } else if (message.type === "write_file" && result.data?.bytesWritten) {
       execWorkspaceBytesWritten.inc(result.data.bytesWritten);
     }
@@ -73,7 +76,8 @@ export async function sendSessionMessage(
     status = "error";
     throw err;
   } finally {
-    const duration = Number(process.hrtime.bigint() - startTime) / 1_000_000_000;
+    const duration =
+      Number(process.hrtime.bigint() - startTime) / 1_000_000_000;
     execMessageDurationSeconds.observe({ type: message.type }, duration);
     execMessageTotal.inc({ type: message.type, status });
   }
