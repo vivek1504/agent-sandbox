@@ -20,7 +20,8 @@ import { destroySession } from "../session/session.js";
 
 async function createTestClient() {
   const server = createMcpServer();
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
 
   await server.connect(serverTransport);
 
@@ -44,14 +45,19 @@ function textOf(result: any): string {
 }
 
 function mockSendSession(response: any, streamChunks?: any[]) {
-  return vi.fn(async (_sessionId: string, _message: any, onStream?: (chunk: any) => void) => {
-    for (const chunk of streamChunks || []) {
-      onStream?.(chunk);
-    }
-    return response;
-  });
+  return vi.fn(
+    async (
+      _sessionId: string,
+      _message: any,
+      onStream?: (chunk: any) => void,
+    ) => {
+      for (const chunk of streamChunks || []) {
+        onStream?.(chunk);
+      }
+      return response;
+    },
+  );
 }
-
 
 describe("MCP Server Tools", () => {
   let client: Client;
@@ -68,14 +74,15 @@ describe("MCP Server Tools", () => {
     await cleanup();
   });
 
-
   describe("listTools", () => {
     it("lists all 5 tools with correct names", async () => {
       const { tools } = await client.listTools();
       const names = tools.map((t) => t.name).sort();
       expect(names).toEqual([
+        "create_session",
         "execute",
         "list_files",
+        "ping",
         "read_file",
         "reset_session",
         "write_file",
@@ -148,13 +155,10 @@ describe("MCP Server Tools", () => {
 
     it("includes stderr stream in output", async () => {
       vi.mocked(sendSessionMessage).mockImplementation(
-        mockSendSession(
-          { type: "response", data: { exitCode: 0 } },
-          [
-            { stream: "stdout", data: "out\n" },
-            { stream: "stderr", data: "err\n" },
-          ],
-        ),
+        mockSendSession({ type: "response", data: { exitCode: 0 } }, [
+          { stream: "stdout", data: "out\n" },
+          { stream: "stderr", data: "err\n" },
+        ]),
       );
 
       const result = await client.callTool({
@@ -204,7 +208,6 @@ describe("MCP Server Tools", () => {
     });
   });
 
-
   describe("write_file", () => {
     it("base64-encodes content and sends write_file message", async () => {
       vi.mocked(sendSessionMessage).mockImplementation(
@@ -247,7 +250,10 @@ describe("MCP Server Tools", () => {
         },
       });
 
-      const message = vi.mocked(sendSessionMessage).mock.calls[0]![1] as Record<string, any>;
+      const message = vi.mocked(sendSessionMessage).mock.calls[0]![1] as Record<
+        string,
+        any
+      >;
       const decoded = Buffer.from(message.content, "base64").toString("utf-8");
       expect(decoded).toBe("hello 🌍");
     });
@@ -293,7 +299,10 @@ describe("MCP Server Tools", () => {
 
       expect(sendSessionMessage).toHaveBeenCalledWith(
         "s1",
-        expect.objectContaining({ type: "read_file", path: "deep/nested/file.js" }),
+        expect.objectContaining({
+          type: "read_file",
+          path: "deep/nested/file.js",
+        }),
       );
     });
   });
@@ -347,7 +356,11 @@ describe("MCP Server Tools", () => {
 
       expect(sendSessionMessage).toHaveBeenCalledWith(
         "s1",
-        expect.objectContaining({ type: "list_files", path: "src", recursive: true }),
+        expect.objectContaining({
+          type: "list_files",
+          path: "src",
+          recursive: true,
+        }),
       );
     });
   });
