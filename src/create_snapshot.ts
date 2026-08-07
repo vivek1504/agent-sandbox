@@ -3,16 +3,28 @@ import axios from "axios";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import {
+  JAILER_BIN,
+  jailerArgs,
+  ARTIFACTS_DIR,
+  prepareSnapshotCreationJail,
+  type JailPaths,
+} from "./vm/jailer.js";
 
-export async function startFirecrackerProcess(apiSock: string) {
-  const fc = spawn("firecracker", ["--api-sock", apiSock]);
+export async function startFirecrackerProcess(
+  functionId: string,
+  jail: JailPaths,
+) {
+  const fc = spawn(JAILER_BIN, jailerArgs(functionId), {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 
   fc.on("error", (err) => console.error("Firecracker process error:", err));
   fc.stderr.on("data", (data) =>
     console.warn("Firecracker stderr:", data.toString().trim()),
   );
 
-  await waitForFile(apiSock);
+  await waitForFile(jail.apiSocket);
   return fc;
 }
 
@@ -37,21 +49,17 @@ export function createFcClient(apiSock: string) {
   });
 }
 
-export async function configureVm(
-  client: any,
-  functionId: string,
-  image: string,
-) {
+export async function configureVm(client: any, functionId: string) {
   await client.put("/machine-config", { vcpu_count: 1, mem_size_mib: 128 });
 
   await client.put("/boot-source", {
-    kernel_image_path: path.resolve("vmlinux"),
+    kernel_image_path: "/vmlinux",
     boot_args: "console=ttyS0 reboot=k panic=1 pci=off init=/init -- /start.sh",
   });
 
   await client.put("/drives/rootfs", {
     drive_id: "rootfs",
-    path_on_host: image,
+    path_on_host: "/rootfs.ext4",
     is_root_device: true,
     is_read_only: true,
   });
@@ -59,20 +67,20 @@ export async function configureVm(
   await client.put("/vsock", {
     vsock_id: "vsock0",
     guest_cid: Math.floor(Math.random() * 10000) + 3,
-    uds_path: `/tmp/vsock-${functionId}.sock`,
+    uds_path: "/run/vsock.socket",
   });
 
   await client.put("/logger", {
-    log_path: "firecracker.log",
+    log_path: "/firecracker.log",
     level: "Debug",
     show_level: true,
   });
 
-  await client.put("/network-interfaces/eth0", {
-    iface_id: "eth0",
-    host_dev_name: "tap0",
-    guest_mac: "02:FC:00:00:00:01",
-  });
+  // await client.put("/network-interfaces/eth0", {
+  //   iface_id: "eth0",
+  //   host_dev_name: "tap0",
+  //   guest_mac: "02:FC:00:00:00:01",
+  // });
 
   await client.put("/actions", { action_type: "InstanceStart" });
 }
@@ -80,7 +88,10 @@ export async function configureVm(
 export function waitForVmReady(fc: { stdout: NodeJS.EventEmitter }) {
   return new Promise<void>((resolve, reject) => {
     let buffer = "";
-    const timeout = setTimeout(() => reject(new Error("VM startup timeout")), 50_000);
+    const timeout = setTimeout(
+      () => reject(new Error("VM startup timeout")),
+      50_000,
+    );
     fc.stdout.on("data", (data: Buffer) => {
       buffer += data.toString();
       if (buffer.includes("READY")) {
@@ -92,16 +103,7 @@ export function waitForVmReady(fc: { stdout: NodeJS.EventEmitter }) {
 }
 
 async function main() {
-  const functionId = "__exec__";
-  const apiSock = `/tmp/firecracker-${functionId}.socket`;
-  const vsockPath = `/tmp/vsock-${functionId}.sock`;
-
-  try {
-    fs.unlinkSync(apiSock);
-  } catch {}
-  try {
-    fs.unlinkSync(vsockPath);
-  } catch {}
+  const functionId = "exec";
 
   fs.mkdirSync("snapshot", { recursive: true });
   fs.mkdirSync("mem", { recursive: true });
@@ -112,14 +114,16 @@ async function main() {
     process.exit(1);
   }
 
+  const jail = prepareSnapshotCreationJail(functionId);
+
   console.log("Starting Firecracker process...");
-  const fc = await startFirecrackerProcess(apiSock);
+  const fc = await startFirecrackerProcess(functionId, jail);
 
   console.log("Configuring VM...");
-  const client = createFcClient(apiSock);
+  const client = createFcClient(jail.apiSocket);
 
   const readyPromise = waitForVmReady(fc);
-  await configureVm(client, functionId, image);
+  await configureVm(client, functionId);
 
   console.log("Waiting for VM READY signal...");
   await readyPromise;
@@ -128,34 +132,35 @@ async function main() {
   console.log("Pausing VM...");
   await client.patch("/vm", { state: "Paused" });
 
-  const snapshotPath = path.resolve(`snapshot/snapshot-${functionId}`);
-  const memPath = path.resolve(`mem/mem-${functionId}`);
+  const snapshotPath = path.join(jail.rootDir, "artifacts", "snapshot");
+  const memPath = path.join(jail.rootDir, "artifacts", "memory");
 
   console.log(`Creating snapshot at:\n  ${snapshotPath}\n  ${memPath}`);
   await client.put("/snapshot/create", {
     snapshot_type: "Full",
-    snapshot_path: snapshotPath,
-    mem_file_path: memPath,
+    snapshot_path: "/artifacts/snapshot",
+    mem_file_path: "/artifacts/memory",
   });
 
   console.log("Snapshot created successfully!");
   console.log("Killing Firecracker process...");
   fc.kill("SIGKILL");
 
-  try {
-    fs.unlinkSync(apiSock);
-  } catch {}
-  try {
-    fs.unlinkSync(vsockPath);
-  } catch {}
-
-  console.log("\nDone! Files created:");
   console.log(
     `  ${snapshotPath} (${(fs.statSync(snapshotPath).size / 1024).toFixed(0)} KB)`,
   );
   console.log(
     `  ${memPath} (${(fs.statSync(memPath).size / 1024 / 1024).toFixed(1)} MB)`,
   );
+
+  fs.renameSync(
+    snapshotPath,
+    path.join(ARTIFACTS_DIR, `snapshot-${functionId}`),
+  );
+
+  fs.renameSync(memPath, path.join(ARTIFACTS_DIR, `mem-${functionId}`));
+
+  console.log("\nDone! Files created:");
   console.log(
     "\nYou can now start the server and use the /exec and /mcp endpoints.",
   );
