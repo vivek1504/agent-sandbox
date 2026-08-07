@@ -1,11 +1,16 @@
 import { spawn } from "child_process";
 import net from "net";
 import axios from "axios";
-import path from "path";
 import crypto from "crypto";
 import { vmLogger } from "../logger.js";
 import { vmCount, vmCreationTime, vmCreationTotal } from "../metrics.js";
-import { fileURLToPath } from "url";
+import {
+  JAILER_BIN,
+  jailerArgs,
+  prepareJail,
+  removeJail,
+  type JailPaths,
+} from "./jailer.js";
 
 import type { ChildProcessWithoutNullStreams } from "child_process";
 import type { Socket } from "net";
@@ -18,49 +23,53 @@ export interface Vm {
   firecrackerProcess: ChildProcessWithoutNullStreams;
   apiSock: string;
   vsock: string;
+  jailDir?: string;
   socket?: Socket;
   cleaned?: boolean;
 }
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__dirname, "../..")
-
-export async function createVm(sessionId: string, snapshotId?: string): Promise<Vm> {
+export async function createVm(
+  sessionId: string,
+  snapshotId?: string,
+): Promise<Vm> {
   const instanceId = crypto.randomBytes(4).toString("hex");
-  const apiSock = `/tmp/firecracker-${sessionId}-${instanceId}.socket`;
-  const vsock = `/tmp/vsock-${sessionId}-${instanceId}.sock`;
+  const resolvedSnapshotId = snapshotId || sessionId;
   const start = performance.now();
+  let jail: JailPaths | undefined;
+  let fc: ChildProcessWithoutNullStreams | undefined;
 
   vmLogger.info(
-    { sessionId, instanceId, apiSock, vsock },
+    { sessionId, instanceId, snapshotId: resolvedSnapshotId },
     "creating new VM instance",
   );
   vmCount.inc({ function_id: sessionId, state: "creating" });
 
   try {
-    const fc = spawn("firecracker", ["--api-sock", apiSock]);
+    jail = prepareJail(instanceId, resolvedSnapshotId);
+    fc = spawn(JAILER_BIN, jailerArgs(instanceId));
     fc.on("error", (err) => {
-      vmLogger.error({ instanceId, err }, "firecracker process error");
+      vmLogger.error({ instanceId, err }, "jailer process error");
     });
 
     fc.on("exit", (code, signal) => {
       vmLogger.info(
         { instanceId, exitCode: code, signal },
-        "firecracker process exited",
+        "jailer process exited",
       );
     });
 
-    await waitForFirecrackerApiSocket(apiSock);
+    await waitForFirecrackerApiSocket(jail.apiSocket);
 
-    const client = createFcClient(apiSock);
-    await restoreVm(client, snapshotId || sessionId, vsock);
+    const client = createFcClient(jail.apiSocket);
+    await restoreVm(client, resolvedSnapshotId, jail);
 
     const vm: Vm = {
       id: instanceId,
       state: "ready",
       firecrackerProcess: fc,
-      apiSock,
-      vsock,
+      apiSock: jail.apiSocket,
+      vsock: jail.vsockSocket,
+      jailDir: jail.instanceDir,
     };
 
     const durationSec = (performance.now() - start) / 1000;
@@ -79,6 +88,17 @@ export async function createVm(sessionId: string, snapshotId?: string): Promise<
     );
     return vm;
   } catch (err) {
+    try {
+      fc?.kill();
+    } catch {}
+    try {
+      if (jail) removeJail(jail.instanceDir);
+    } catch (cleanupErr) {
+      vmLogger.warn(
+        { instanceId, err: cleanupErr },
+        "failed to remove unsuccessful jail",
+      );
+    }
     const durationSec = (performance.now() - start) / 1000;
     vmCreationTime.observe(durationSec);
     vmCreationTotal.inc({ status: "error" });
@@ -142,29 +162,24 @@ export function createFcClient(apiSock: string) {
 export async function restoreVm(
   client: any,
   functionId: string,
-  vsock: string,
+  jail: JailPaths,
 ) {
-  vmLogger.debug({ functionId, vsock }, "restoring VM from snapshot");
+  vmLogger.debug(
+    { functionId, vsock: jail.vsockSocket },
+    "restoring VM from snapshot",
+  );
 
   await client.put("/snapshot/load", {
-    snapshot_path: path.join(
-      ROOT,
-      "snapshot",
-      `snapshot-${functionId}`
-    ),
+    snapshot_path: jail.snapshotPath,
 
     mem_backend: {
-      backend_path: path.join(
-        ROOT,
-        "mem",
-        `mem-${functionId}`
-      ),
+      backend_path: jail.memoryPath,
       backend_type: "File",
     },
     track_dirty_pages: true,
     resume_vm: true,
     vsock_override: {
-      uds_path: vsock,
+      uds_path: "/run/vsock.socket",
     },
   });
 

@@ -33,4 +33,18 @@ describe("cleanupVm", () => {
     await cleanupVm("session-1", vm);
     expect(vm.firecrackerProcess.kill).not.toHaveBeenCalled();
   });
+
+  it("removes its jail directory when present", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+    const removeSpy = vi.spyOn(fs, "rmSync").mockImplementation(() => undefined);
+
+    await cleanupVm("session-1", makeVm({
+      jailDir: "/var/lib/lambda/jailer/firecracker/test",
+    }));
+
+    expect(removeSpy).toHaveBeenCalledWith(
+      "/var/lib/lambda/jailer/firecracker/test",
+      { recursive: true, force: true },
+    );
+  });
 });

@@ -1,6 +1,7 @@
 import fs from "fs";
 import { vmLogger } from "../logger.js";
 import { vmCleanupTotal, vmCount } from "../metrics.js";
+import { removeJail } from "./jailer.js";
 
 import type { Vm } from "./vm-manager.js";
 
@@ -29,6 +30,15 @@ export async function cleanupVm(sessionId: string, vm: Vm) {
       vmLogger.debug({ path: vm.vsock }, "vsock removed");
     }
   } catch {}
+
+  try {
+    if (vm.jailDir) {
+      removeJail(vm.jailDir);
+      vmLogger.debug({ path: vm.jailDir }, "jail directory removed");
+    }
+  } catch (err) {
+    vmLogger.warn({ vmId: vm.id, err }, "failed to remove jail directory");
+  }
 
   vmCleanupTotal.inc();
   vmCount.dec({ function_id: sessionId, state: vm.state });
