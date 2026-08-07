@@ -4,12 +4,12 @@ import type { Socket } from "net";
 
 vi.mock("../vm/vm-manager.js", () => ({
   createVm: vi.fn(async () => ({
-      id: "mock-vm",
-      state: "ready" as const,
-      firecrackerProcess: { kill: vi.fn() },
-      apiSock: "/tmp/mock-api.sock",
-      vsock: "/tmp/mock-vsock.sock",
-    })),
+    id: "mock-vm",
+    state: "ready" as const,
+    firecrackerProcess: { kill: vi.fn() },
+    apiSock: "/tmp/mock-api.sock",
+    vsock: "/tmp/mock-vsock.sock",
+  })),
 }));
 
 vi.mock("../vm/transport.js", () => ({
@@ -61,9 +61,7 @@ describe("ensureSession", () => {
   it("creates a new session and VM on first call", async () => {
     const vm = await ensureSession("new-session");
 
-    expect(createVm).toHaveBeenCalledWith(
-      "new-session", "__exec__",
-    );
+    expect(createVm).toHaveBeenCalledWith("new-session", "exec");
     expect(vm).toBeDefined();
     expect(vm.id).toBe("mock-vm");
   });
@@ -92,9 +90,7 @@ describe("ensureSession", () => {
 
     await ensureSession("empty-vm-session");
 
-    expect(createVm).toHaveBeenCalledWith(
-      "empty-vm-session", "__exec__",
-    );
+    expect(createVm).toHaveBeenCalledWith("empty-vm-session", "exec");
   });
 
   it("stores a newly created VM on the session", async () => {
@@ -193,7 +189,11 @@ describe("sendSessionMessage", () => {
       data: {},
     });
 
-    await sendSessionMessage("s4", { type: "execute", id: "custom-id-42", command: "echo" });
+    await sendSessionMessage("s4", {
+      type: "execute",
+      id: "custom-id-42",
+      command: "echo",
+    });
 
     const written = (socket.write as any).mock.calls[0][0] as string;
     const parsed = JSON.parse(written.trim());
@@ -226,7 +226,10 @@ describe("sendSessionMessage", () => {
       data: { exitCode: 0 },
     });
 
-    const result = await sendSessionMessage("s6", { type: "execute", command: "echo" });
+    const result = await sendSessionMessage("s6", {
+      type: "execute",
+      command: "echo",
+    });
 
     expect(result.messageId).toBeDefined();
   });
@@ -235,10 +238,16 @@ describe("sendSessionMessage", () => {
     prePopulateSession("s7");
     const socket = makeFakeSocket();
     vi.mocked(getVmSocket).mockResolvedValue(socket);
-    vi.mocked(readVsockResponse).mockRejectedValue(new Error("Function timeout"));
+    vi.mocked(readVsockResponse).mockRejectedValue(
+      new Error("Function timeout"),
+    );
 
     await expect(
-      sendSessionMessage("s7", { type: "execute", command: "sleep", args: ["999"] }),
+      sendSessionMessage("s7", {
+        type: "execute",
+        command: "sleep",
+        args: ["999"],
+      }),
     ).rejects.toThrow("Function timeout");
   });
 });
