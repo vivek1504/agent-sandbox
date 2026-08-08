@@ -91,9 +91,9 @@ export function prepareJail(vmId: string, snapshotId: string): JailPaths {
   };
 }
 
-export function jailerArgs(vmId: string): string[] {
+export function jailerArgs(vmId: string, netnsPath?: string): string[] {
   assertSafeName(vmId, "VM ID");
-  return [
+  const args = [
     "--id",
     vmId,
     "--exec-file",
@@ -106,10 +106,14 @@ export function jailerArgs(vmId: string): string[] {
     JAIL_BASE_DIR,
     "--resource-limit",
     "no-file=1024",
-    "--",
-    "--api-sock",
-    "/run/api.socket",
   ];
+
+  if (netnsPath) {
+    args.push("--netns", netnsPath);
+  }
+
+  args.push("--", "--api-sock", "/run/api.socket");
+  return args;
 }
 
 export function removeJail(instancePath: string): void {

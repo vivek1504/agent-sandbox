@@ -2,6 +2,7 @@ import fs from "fs";
 import { vmLogger } from "../logger.js";
 import { vmCleanupTotal, vmCount } from "../metrics.js";
 import { removeJail } from "./jailer.js";
+import { teardownVmNetwork } from "./networking.js";
 
 import type { Vm } from "./vm-manager.js";
 
@@ -38,6 +39,15 @@ export async function cleanupVm(sessionId: string, vm: Vm) {
     }
   } catch (err) {
     vmLogger.warn({ vmId: vm.id, err }, "failed to remove jail directory");
+  }
+
+  try {
+    if (vm.networkInfo) {
+      teardownVmNetwork(vm.networkInfo);
+      vmLogger.debug({ nsName: vm.networkInfo.nsName }, "network namespace removed");
+    }
+  } catch (err) {
+    vmLogger.warn({ vmId: vm.id, err }, "failed to teardown VM network");
   }
 
   vmCleanupTotal.inc();
