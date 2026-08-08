@@ -11,6 +11,11 @@ import {
   removeJail,
   type JailPaths,
 } from "./jailer.js";
+import {
+  setupVmNetwork,
+  teardownVmNetwork,
+  type VmNetworkInfo,
+} from "./networking.js";
 
 import type { ChildProcessWithoutNullStreams } from "child_process";
 import type { Socket } from "net";
@@ -24,6 +29,7 @@ export interface Vm {
   apiSock: string;
   vsock: string;
   jailDir?: string;
+  networkInfo?: VmNetworkInfo;
   socket?: Socket;
   cleaned?: boolean;
 }
@@ -37,6 +43,7 @@ export async function createVm(
   const start = performance.now();
   let jail: JailPaths | undefined;
   let fc: ChildProcessWithoutNullStreams | undefined;
+  let networkInfo: VmNetworkInfo | undefined;
 
   vmLogger.info(
     { sessionId, instanceId, snapshotId: resolvedSnapshotId },
@@ -45,8 +52,10 @@ export async function createVm(
   vmCount.inc({ function_id: sessionId, state: "creating" });
 
   try {
+    networkInfo = setupVmNetwork(instanceId);
+
     jail = prepareJail(instanceId, resolvedSnapshotId);
-    fc = spawn(JAILER_BIN, jailerArgs(instanceId));
+    fc = spawn(JAILER_BIN, jailerArgs(instanceId, networkInfo.nsPath));
     fc.on("error", (err) => {
       vmLogger.error({ instanceId, err }, "jailer process error");
     });
@@ -70,6 +79,7 @@ export async function createVm(
       apiSock: jail.apiSocket,
       vsock: jail.vsockSocket,
       jailDir: jail.instanceDir,
+      networkInfo,
     };
 
     const durationSec = (performance.now() - start) / 1000;
@@ -90,7 +100,8 @@ export async function createVm(
   } catch (err) {
     try {
       fc?.kill();
-    } catch {}
+    } catch { }
+
     try {
       if (jail) removeJail(jail.instanceDir);
     } catch (cleanupErr) {
@@ -99,6 +110,16 @@ export async function createVm(
         "failed to remove unsuccessful jail",
       );
     }
+
+    try {
+      if (networkInfo) teardownVmNetwork(networkInfo);
+    } catch (cleanupErr) {
+      vmLogger.warn(
+        { instanceId, err: cleanupErr },
+        "failed to teardown network after failed VM creation",
+      );
+    }
+
     const durationSec = (performance.now() - start) / 1000;
     vmCreationTime.observe(durationSec);
     vmCreationTotal.inc({ status: "error" });
