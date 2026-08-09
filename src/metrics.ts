@@ -106,3 +106,10 @@ export const execWorkspaceBytesWritten = new Counter({
   help: "Bytes written to workspaces",
   registers: [register],
 });
+
+export const vmResourceConfig = new Gauge({
+  name: "vm_resource_config",
+  help: "Configured resource limits per VM",
+  labelNames: ["resource"],
+  registers:[register]
+})

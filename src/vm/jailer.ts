@@ -1,6 +1,16 @@
 import fs from "fs";
 import path from "path";
 
+export interface VmResourceConfig {
+  vcpuCount: number;
+  memSizeMib: number;
+  cpuQuotaUs: number;
+  cpuPeriodUs: number;
+  memoryLimitBytes: number;
+  noFileSoftLimit: number;
+  diskLimitBytes?: number
+}
+
 export const JAILER_BIN =
   process.env.FIRECRACKER_JAILER_BIN ?? "/usr/local/bin/jailer";
 export const FIRECRACKER_BIN =
@@ -91,8 +101,18 @@ export function prepareJail(vmId: string, snapshotId: string): JailPaths {
   };
 }
 
-export function jailerArgs(vmId: string, netnsPath?: string): string[] {
+export function detectCgroupVersion(): 1 | 2 {
+  try {
+    const mounts = fs.readFileSync("/proc/mounts", "utf-8");
+    return mounts.includes("cgroup2") ? 2 : 1;
+  } catch {
+    return 2;
+  }
+}
+
+export function jailerArgs(vmId: string, netnsPath?: string, resources: VmResourceConfig = loadResourceConfig()): string[] {
   assertSafeName(vmId, "VM ID");
+  const cgroupVersion = detectCgroupVersion();
   const args = [
     "--id",
     vmId,
@@ -104,9 +124,29 @@ export function jailerArgs(vmId: string, netnsPath?: string): string[] {
     String(FIRECRACKER_GID),
     "--chroot-base-dir",
     JAIL_BASE_DIR,
+    "--cgroup-version",
+    String(cgroupVersion),
     "--resource-limit",
-    "no-file=1024",
+    `no-file=${resources.noFileSoftLimit}`,
   ];
+
+  if (cgroupVersion === 2) {
+    args.push(
+      "--cgroup",
+      `cpu.max=${resources.cpuQuotaUs} ${resources.cpuPeriodUs}`,
+      "--cgroup",
+      `memory.max=${resources.memoryLimitBytes}`
+    );
+  } else {
+    args.push(
+      "--cgroup",
+      `cpu.cpu.cfs_quota_us=${resources.cpuQuotaUs}`,
+      "--cgroup",
+      `cpu.cpu.cfs_period_us=${resources.cpuPeriodUs}`,
+      "--cgroup",
+      `memory.memory.limit_in_bytes=${resources.memoryLimitBytes}`
+    );
+  }
 
   if (netnsPath) {
     args.push("--netns", netnsPath);
@@ -163,5 +203,22 @@ export function prepareSnapshotCreationJail(vmId: string): JailPaths {
 
     snapshotPath: "/artifacts/snapshot",
     memoryPath: "/artifacts/memory",
+  };
+}
+
+export function loadResourceConfig(): VmResourceConfig {
+  return {
+    vcpuCount: parseInt(process.env.VM_VCPU_COUNT ?? "1", 10),
+    memSizeMib: parseInt(process.env.VM_MEM_SIZE_MIB ?? "128", 10),
+    cpuQuotaUs: parseInt(process.env.VM_CPU_QUOTA_US ?? "50000", 10),
+    cpuPeriodUs: parseInt(process.env.VM_CPU_PERIOD_US ?? "100000", 10),
+    memoryLimitBytes: parseInt(
+      process.env.VM_MEMORY_LIMIT_BYTES ?? String(128 * 1024 * 1024),
+      10,
+    ),
+    noFileSoftLimit: parseInt(process.env.VM_NOFILE_LIMIT ?? "1024", 10),
+    diskLimitBytes: process.env.VM_DISK_LIMIT_BYTES
+      ? parseInt(process.env.VM_DISK_LIMIT_BYTES, 10)
+      : 512 * 1024 * 1024,
   };
 }

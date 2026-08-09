@@ -301,13 +301,20 @@ All configuration is via environment variables:
 |---|---|---|
 | `PORT` | `3000` | HTTP server port |
 | `LOG_LEVEL` | `debug` | Pino log level |
-| `MCP_AUTH_TOKEN` | `test-secret-123` | Bearer token for MCP SSE endpoint |
+| `MCP_AUTH_TOKEN` | *(Required)* | Bearer token for MCP SSE endpoint |
 | `FIRECRACKER_BIN` | `/usr/local/bin/firecracker` | Path to Firecracker binary |
 | `FIRECRACKER_JAILER_BIN` | `/usr/local/bin/jailer` | Path to Jailer binary |
 | `FIRECRACKER_JAIL_BASE` | `/var/lib/lambda/jailer` | Base directory for Jailer chroots |
 | `FIRECRACKER_ARTIFACTS_DIR` | `/var/lib/lambda/artifacts` | Snapshot, memory, kernel, and rootfs storage |
 | `FIRECRACKER_UID` | `997` | UID for the Firecracker process |
 | `FIRECRACKER_GID` | `982` | GID for the Firecracker process |
+| `VM_VCPU_COUNT` | `1` | Number of guest vCPUs configured for the VM |
+| `VM_MEM_SIZE_MIB` | `128` | Guest RAM size in MiB (must match the snapshot configuration) |
+| `VM_CPU_QUOTA_US` | `50000` | CPU quota in microseconds for cgroups (bandwidth limit) |
+| `VM_CPU_PERIOD_US` | `100000` | CPU period in microseconds for cgroups |
+| `VM_MEMORY_LIMIT_BYTES` | `134217728` (128 MiB) | Host-side cgroup memory limit in bytes |
+| `VM_NOFILE_LIMIT` | `1024` | Maximum number of open file descriptors for the VM process |
+| `VM_DISK_LIMIT_BYTES` | `536870912` (512 MiB) | Host-side cgroup disk quota limit in bytes |
 
 ---
 
@@ -325,6 +332,7 @@ Built-in Prometheus metrics at `/metrics`:
 | `exec_message_duration_seconds` | Histogram | Command round-trip time |
 | `vsock_connection_time` | Histogram | Host ↔ VM connection latency |
 | `vsock_errors_total` | Counter | Connection/parse/timeout errors |
+| `vm_resource_config` | Gauge | Configured host resource limits per VM (labels: `resource`) |
 
 Additional endpoints:
 

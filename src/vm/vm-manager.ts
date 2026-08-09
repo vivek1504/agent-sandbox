@@ -10,6 +10,8 @@ import {
   prepareJail,
   removeJail,
   type JailPaths,
+  type VmResourceConfig,
+  loadResourceConfig,
 } from "./jailer.js";
 import {
   setupVmNetwork,
@@ -37,6 +39,7 @@ export interface Vm {
 export async function createVm(
   sessionId: string,
   snapshotId?: string,
+  resources: VmResourceConfig = loadResourceConfig()
 ): Promise<Vm> {
   const instanceId = crypto.randomBytes(4).toString("hex");
   const resolvedSnapshotId = snapshotId || sessionId;
@@ -46,7 +49,7 @@ export async function createVm(
   let networkInfo: VmNetworkInfo | undefined;
 
   vmLogger.info(
-    { sessionId, instanceId, snapshotId: resolvedSnapshotId },
+    { sessionId, instanceId, snapshotId: resolvedSnapshotId, resources },
     "creating new VM instance",
   );
   vmCount.inc({ function_id: sessionId, state: "creating" });
@@ -55,7 +58,7 @@ export async function createVm(
     networkInfo = setupVmNetwork(instanceId);
 
     jail = prepareJail(instanceId, resolvedSnapshotId);
-    fc = spawn(JAILER_BIN, jailerArgs(instanceId, networkInfo.nsPath));
+    fc = spawn(JAILER_BIN, jailerArgs(instanceId, networkInfo.nsPath, resources));
     fc.on("error", (err) => {
       vmLogger.error({ instanceId, err }, "jailer process error");
     });
