@@ -10,12 +10,18 @@ import {
   prepareSnapshotCreationJail,
   type JailPaths,
 } from "./vm/jailer.js";
+import {
+  setupVmNetwork,
+  teardownVmNetwork,
+  type VmNetworkInfo,
+} from "./vm/networking.js";
 
 export async function startFirecrackerProcess(
   functionId: string,
   jail: JailPaths,
+  netnsPath?: string,
 ) {
-  const fc = spawn(JAILER_BIN, jailerArgs(functionId), {
+  const fc = spawn(JAILER_BIN, jailerArgs(functionId, netnsPath), {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -76,11 +82,11 @@ export async function configureVm(client: any, functionId: string) {
     show_level: true,
   });
 
-  // await client.put("/network-interfaces/eth0", {
-  //   iface_id: "eth0",
-  //   host_dev_name: "tap0",
-  //   guest_mac: "02:FC:00:00:00:01",
-  // });
+  await client.put("/network-interfaces/eth0", {
+    iface_id: "eth0",
+    host_dev_name: "tap0",
+    guest_mac: "02:FC:00:00:00:01",
+  });
 
   await client.put("/actions", { action_type: "InstanceStart" });
 }
@@ -116,8 +122,18 @@ async function main() {
 
   const jail = prepareSnapshotCreationJail(functionId);
 
+  console.log("Setting up network namespace for snapshot creation...");
+  let networkInfo: VmNetworkInfo | undefined;
+  try {
+    networkInfo = setupVmNetwork(functionId);
+  } catch (err) {
+    console.error("Failed to set up network namespace:", err);
+    console.error("Ensure you have root/CAP_NET_ADMIN privileges.");
+    process.exit(1);
+  }
+
   console.log("Starting Firecracker process...");
-  const fc = await startFirecrackerProcess(functionId, jail);
+  const fc = await startFirecrackerProcess(functionId, jail, networkInfo.nsPath);
 
   console.log("Configuring VM...");
   const client = createFcClient(jail.apiSocket);
@@ -164,6 +180,15 @@ async function main() {
   console.log(
     "\nYou can now start the server and use the /exec and /mcp endpoints.",
   );
+
+  if (networkInfo) {
+    console.log("Cleaning up snapshot network namespace...");
+    try {
+      teardownVmNetwork(networkInfo);
+    } catch (err) {
+      console.warn("Warning: failed to clean up network namespace:", err);
+    }
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

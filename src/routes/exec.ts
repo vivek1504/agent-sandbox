@@ -39,8 +39,9 @@ execRouter.post("/:sessionId/write", async (req, res) => {
   if (!path || !content) return res.status(400).json({ error: "path and content required" });
 
   try {
+    const contentBase64 = Buffer.from(content, "utf8").toString("base64");
     const result = await sendSessionMessage(sessionId, {
-      type: "write_file", path, content, mode,
+      type: "write_file", path, content: contentBase64, mode,
     });
     res.json(result.data);
   } catch (err: any) {
@@ -58,7 +59,11 @@ execRouter.get("/:sessionId/read", async (req, res) => {
     const result = await sendSessionMessage(sessionId, {
       type: "read_file", path,
     });
-    res.json(result.data);
+    const data = result.data
+    res.json({
+      ...data,
+      content: Buffer.from(data.content, "base64").toString("utf8"),
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
