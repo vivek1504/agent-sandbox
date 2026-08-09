@@ -9,6 +9,8 @@ import {
   ARTIFACTS_DIR,
   prepareSnapshotCreationJail,
   type JailPaths,
+  type VmResourceConfig,
+  loadResourceConfig,
 } from "./vm/jailer.js";
 import {
   setupVmNetwork,
@@ -20,8 +22,9 @@ export async function startFirecrackerProcess(
   functionId: string,
   jail: JailPaths,
   netnsPath?: string,
+  resources?: VmResourceConfig,
 ) {
-  const fc = spawn(JAILER_BIN, jailerArgs(functionId, netnsPath), {
+  const fc = spawn(JAILER_BIN, jailerArgs(functionId, netnsPath, resources), {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -55,8 +58,8 @@ export function createFcClient(apiSock: string) {
   });
 }
 
-export async function configureVm(client: any, functionId: string) {
-  await client.put("/machine-config", { vcpu_count: 1, mem_size_mib: 128 });
+export async function configureVm(client: any, resources: VmResourceConfig = loadResourceConfig()) {
+  await client.put("/machine-config", { vcpu_count: resources.vcpuCount, mem_size_mib: resources.memSizeMib });
 
   await client.put("/boot-source", {
     kernel_image_path: "/vmlinux",
@@ -132,14 +135,16 @@ async function main() {
     process.exit(1);
   }
 
+  const vmResources: VmResourceConfig = loadResourceConfig();
+
   console.log("Starting Firecracker process...");
-  const fc = await startFirecrackerProcess(functionId, jail, networkInfo.nsPath);
+  const fc = await startFirecrackerProcess(functionId, jail, networkInfo.nsPath, vmResources);
 
   console.log("Configuring VM...");
   const client = createFcClient(jail.apiSocket);
 
   const readyPromise = waitForVmReady(fc);
-  await configureVm(client, functionId);
+  await configureVm(client, vmResources);
 
   console.log("Waiting for VM READY signal...");
   await readyPromise;
