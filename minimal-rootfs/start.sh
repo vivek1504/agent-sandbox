@@ -2,7 +2,7 @@
 set -e
 
 mount -t tmpfs tmpfs /tmp
-mount -t tmpfs -o size=32m,mode=0755 tmpfs /workspace
+mount -t tmpfs -o size=512m,mode=0755 tmpfs /workspace
 
 ip link set eth0 up 2>/dev/null || true
 
