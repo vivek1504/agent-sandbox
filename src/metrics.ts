@@ -111,5 +111,13 @@ export const vmResourceConfig = new Gauge({
   name: "vm_resource_config",
   help: "Configured resource limits per VM",
   labelNames: ["resource"],
-  registers:[register]
-})
+  registers: [register],
+});
+
+export const vmEgressPolicyApplied = new Counter({
+  name: "vm_egress_policy_applied_total",
+  help: "Count of egress policies applied to VMs",
+  labelNames: ["dns_mode", "dest_mode", "bw_enabled"],
+  registers: [register],
+});
+
