@@ -10,6 +10,34 @@ execRouter.post("/:sessionId/execute", async (req, res) => {
 
   if (!command) return res.status(400).json({ error: "command is required" });
 
+  const wantsNdjson =
+    req.headers.accept === "application/x-ndjson" ||
+    req.query.format === "ndjson";
+
+  if (wantsNdjson) {
+    res.setHeader("Content-Type", "application/x-ndjson");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+
+    try {
+      const result = await sendSessionMessage(
+        sessionId,
+        { type: "execute", command, args, cwd, env, timeout },
+        (chunk) => {
+          res.write(JSON.stringify({ type: "stream", ...chunk, ts: Date.now() }) + "\n");
+        },
+      );
+
+      res.write(JSON.stringify({ type: "result", ...result.data }) + "\n");
+      res.end();
+    } catch (err: any) {
+      res.write(JSON.stringify({ type: "error", error: err.message }) + "\n");
+      res.end();
+    }
+    return;
+  }
+
   const output: { stream: string; data: string; ts: number }[] = [];
 
   try {
@@ -31,6 +59,7 @@ execRouter.post("/:sessionId/execute", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 execRouter.post("/:sessionId/write", async (req, res) => {
   const { sessionId } = req.params;
