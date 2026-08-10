@@ -12,14 +12,20 @@ import {
 import crypto from "crypto";
 import { createVm, type Vm } from "../vm/vm-manager.js";
 import { type VmResourceConfig, loadResourceConfig } from "../vm/jailer.js";
+import { type EgressPolicy, loadEgressPolicy } from "../vm/egress-policy.js";
 
-export async function ensureSession(sessionId: string, resources: VmResourceConfig = loadResourceConfig()): Promise<Vm> {
+export async function ensureSession(
+  sessionId: string,
+  resources: VmResourceConfig = loadResourceConfig(),
+  egressPolicy: EgressPolicy = loadEgressPolicy(),
+): Promise<Vm> {
   let session = getSession(sessionId);
   session = session || createSession(sessionId);
   if (session.vm) return session.vm;
   if (session.creation) return session.creation;
 
-  session.creation = createVm(sessionId, "exec", resources)
+  session.creation = createVm(sessionId, "exec", resources, egressPolicy)
+
     .then(async (vm) => {
       if (getSession(sessionId) !== session || session.state === "destroying") {
         await cleanupVm(sessionId, vm);

@@ -18,6 +18,7 @@ import {
   teardownVmNetwork,
   type VmNetworkInfo,
 } from "./networking.js";
+import { type EgressPolicy, loadEgressPolicy } from "./egress-policy.js";
 
 import type { ChildProcessWithoutNullStreams } from "child_process";
 import type { Socket } from "net";
@@ -39,7 +40,8 @@ export interface Vm {
 export async function createVm(
   sessionId: string,
   snapshotId?: string,
-  resources: VmResourceConfig = loadResourceConfig()
+  resources: VmResourceConfig = loadResourceConfig(),
+  egressPolicy: EgressPolicy = loadEgressPolicy(),
 ): Promise<Vm> {
   const instanceId = crypto.randomBytes(4).toString("hex");
   const resolvedSnapshotId = snapshotId || sessionId;
@@ -49,13 +51,14 @@ export async function createVm(
   let networkInfo: VmNetworkInfo | undefined;
 
   vmLogger.info(
-    { sessionId, instanceId, snapshotId: resolvedSnapshotId, resources },
+    { sessionId, instanceId, snapshotId: resolvedSnapshotId, resources, egressPolicy },
     "creating new VM instance",
   );
   vmCount.inc({ function_id: sessionId, state: "creating" });
 
   try {
-    networkInfo = setupVmNetwork(instanceId);
+    networkInfo = setupVmNetwork(instanceId, egressPolicy);
+
 
     jail = prepareJail(instanceId, resolvedSnapshotId);
     fc = spawn(JAILER_BIN, jailerArgs(instanceId, networkInfo.nsPath, resources));

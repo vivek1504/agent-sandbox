@@ -315,6 +315,14 @@ All configuration is via environment variables:
 | `VM_MEMORY_LIMIT_BYTES` | `134217728` (128 MiB) | Host-side cgroup memory limit in bytes |
 | `VM_NOFILE_LIMIT` | `1024` | Maximum number of open file descriptors for the VM process |
 | `VM_DISK_LIMIT_BYTES` | `536870912` (512 MiB) | Host-side cgroup disk quota limit in bytes |
+| `VM_DNS_MODE` | `none` | Per-VM DNS filtering mode (`none`, `allow`, `deny`) |
+| `VM_DNS_DOMAINS` | `""` | Comma-separated domain filter list (e.g. `*.npmjs.org,github.com`) |
+| `VM_DNS_UPSTREAM` | `8.8.8.8,1.1.1.1` | Comma-separated upstream DNS servers |
+| `VM_DEST_MODE` | `none` | Per-VM IP/Port destination filtering mode (`none`, `allow`, `deny`) |
+| `VM_DEST_RULES` | `""` | Destination CIDR/port rules (e.g. `169.254.169.254/32,10.0.0.0/8:443/tcp`) |
+| `VM_BW_ENABLED` | `false` | Enable TC bandwidth throttling per VM (`true`, `false`) |
+| `VM_BW_RATE_KBIT` | `10240` | Rate limit in kbit/s (10240 = 10 Mbit/s) |
+| `VM_BW_BURST_KBIT` | `1024` | Burst limit in kbit |
 
 ---
 
@@ -333,6 +341,7 @@ Built-in Prometheus metrics at `/metrics`:
 | `vsock_connection_time` | Histogram | Host ↔ VM connection latency |
 | `vsock_errors_total` | Counter | Connection/parse/timeout errors |
 | `vm_resource_config` | Gauge | Configured host resource limits per VM (labels: `resource`) |
+| `vm_egress_policy_applied_total` | Counter | Applied VM network egress policies (labels: `dns_mode`, `dest_mode`, `bw_enabled`) |
 
 Additional endpoints:
 
@@ -354,7 +363,7 @@ npm run test:watch
 npm run test:coverage
 ```
 
-Tests cover the session gateway, VM protocol, jailer path handling, cleanup lifecycle, network setup, and MCP tool integration using [Vitest](https://vitest.dev/) and [Supertest](https://github.com/ladjs/supertest).
+Tests cover the session gateway, VM protocol, jailer path handling, cleanup lifecycle, network setup, egress policies, and MCP tool integration using [Vitest](https://vitest.dev/) and [Supertest](https://github.com/ladjs/supertest).
 
 ---
 
@@ -373,7 +382,9 @@ src/
 ├── vm/
 │   ├── vm-manager.ts        # VM lifecycle — create, restore, teardown
 │   ├── jailer.ts            # Jailer integration — chroot, hardlinks, paths
-│   ├── networking.ts        # Per-VM network namespace setup/teardown
+│   ├── networking.ts        # Per-VM network namespace & egress controls
+│   ├── egress-policy.ts     # Config parser for DNS, IP/Port & TC egress policies
+│   ├── egress-policy.test.ts # Unit tests for egress policies
 │   ├── protocol.ts          # Vsock response parsing + streaming
 │   ├── transport.ts         # Vsock connection management
 │   └── cleanup.ts           # Idempotent VM cleanup
@@ -398,7 +409,7 @@ minimal-rootfs/
 |---|---|
 | Execution engine | [Firecracker](https://github.com/firecracker-microvm/firecracker) microVMs |
 | Process isolation | [Jailer](https://github.com/firecracker-microvm/firecracker/blob/main/docs/jailer.md) (chroot + seccomp + UID separation) |
-| Network isolation | Linux network namespaces, veth pairs, TAP, iptables NAT |
+| Network isolation | Linux network namespaces, veth pairs, TAP, iptables NAT, `dnsmasq`, `tc` |
 | Host ↔ VM IPC | vsock + socat bridge |
 | Agent protocol | [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) |
 | API framework | Express 5 (Node.js) |
