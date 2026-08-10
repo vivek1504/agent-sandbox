@@ -31,6 +31,7 @@ import { readVsockResponse } from "../vm/protocol.js";
 import * as sessionModule from "./session.js";
 import { getSession, createSession } from "./session.js";
 import { loadResourceConfig } from "../vm/jailer.js";
+import { loadEgressPolicy } from "../vm/egress-policy.js";
 
 function makeFakeSocket() {
   const stream = new PassThrough();
@@ -62,7 +63,7 @@ describe("ensureSession", () => {
   it("creates a new session and VM on first call", async () => {
     const vm = await ensureSession("new-session");
 
-    expect(createVm).toHaveBeenCalledWith("new-session", "exec", loadResourceConfig());
+    expect(createVm).toHaveBeenCalledWith("new-session", "exec", loadResourceConfig(), loadEgressPolicy());
     expect(vm).toBeDefined();
     expect(vm.id).toBe("mock-vm");
   });
@@ -91,8 +92,9 @@ describe("ensureSession", () => {
 
     await ensureSession("empty-vm-session");
 
-    expect(createVm).toHaveBeenCalledWith("empty-vm-session", "exec", loadResourceConfig());
+    expect(createVm).toHaveBeenCalledWith("empty-vm-session", "exec", loadResourceConfig(), loadEgressPolicy());
   });
+
 
   it("stores a newly created VM on the session", async () => {
     expect(getSession("brand-new")?.vm).toBeUndefined();
