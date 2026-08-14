@@ -2,7 +2,7 @@ import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { vmLogger } from "../logger.js";
-import { vmEgressPolicyApplied } from "../metrics.js";
+import { vmEgressPolicyApplied, vmSlotCapacity } from "../metrics.js";
 import {
   type EgressPolicy,
   type DnsPolicy,
@@ -13,19 +13,60 @@ import {
 } from "./egress-policy.js";
 
 const usedSlots = new Set<number>();
+export const MAX_SLOTS = parseInt(process.env.VM_MAX_SLOTS ?? "254", 10);
+
+function updateSlotMetrics(): void {
+  vmSlotCapacity.set({ state: "used" }, usedSlots.size);
+  vmSlotCapacity.set({ state: "available" }, MAX_SLOTS - usedSlots.size);
+}
 
 export function allocateSlot(): number {
-  for (let slot = 1; slot <= 254; slot++) {
+  for (let slot = 1; slot <= MAX_SLOTS; slot++) {
     if (!usedSlots.has(slot)) {
       usedSlots.add(slot);
+      updateSlotMetrics();
       return slot;
     }
   }
-  throw new Error("No available network slots (max 254 concurrent VMs)");
+  throw new Error(`No available network slots (max ${MAX_SLOTS} concurrent VMs)`);
 }
 
 export function releaseSlot(slot: number): void {
   usedSlots.delete(slot);
+  updateSlotMetrics();
+}
+
+export function recoverUsedSlots(): void {
+  usedSlots.clear();
+
+  try {
+    const nsListOut = execSync("ip netns list 2>/dev/null", { encoding: "utf-8" });
+    const namespaces = nsListOut
+      .split("\n")
+      .map((line) => line.split(" ")[0]?.trim())
+      .filter((name): name is string => !!name && /^ns-[A-Za-z0-9_-]+$/.test(name));
+
+    for (const ns of namespaces) {
+      try {
+        const shortId = ns.replace("ns-", "");
+        const vethHost = `vh-${shortId}`;
+        const addrOut = execSync(`ip addr show ${vethHost} 2>/dev/null`, { encoding: "utf-8" });
+        const match = addrOut.match(/10\.0\.(\d+)\.\d+/);
+        if (match && match[1]) {
+          const slot = parseInt(match[1], 10);
+          usedSlots.add(slot);
+          vmLogger.info({ slot, ns }, "recovered used network slot from OS state");
+        }
+      } catch {
+        // veth interface may be gone or unassigned
+      }
+    }
+  } catch {
+    // ip netns list failed or unprivileged context
+  }
+
+  updateSlotMetrics();
+  vmLogger.info({ usedSlots: [...usedSlots] }, "slot recovery complete");
 }
 
 export interface VmNetworkInfo {

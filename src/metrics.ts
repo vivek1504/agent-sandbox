@@ -128,4 +128,12 @@ export const vmTemplateUsage = new Counter({
   registers: [register],
 });
 
+export const vmSlotCapacity = new Gauge({
+  name: "vm_slot_capacity",
+  help: "Available vs used VM network slots",
+  labelNames: ["state"],
+  registers: [register],
+});
+
+
 
