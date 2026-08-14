@@ -63,7 +63,7 @@ describe("ensureSession", () => {
   it("creates a new session and VM on first call", async () => {
     const vm = await ensureSession("new-session");
 
-    expect(createVm).toHaveBeenCalledWith("new-session", "exec", loadResourceConfig(), loadEgressPolicy());
+    expect(createVm).toHaveBeenCalledWith("new-session", undefined, loadResourceConfig(), loadEgressPolicy());
     expect(vm).toBeDefined();
     expect(vm.id).toBe("mock-vm");
   });
@@ -92,9 +92,8 @@ describe("ensureSession", () => {
 
     await ensureSession("empty-vm-session");
 
-    expect(createVm).toHaveBeenCalledWith("empty-vm-session", "exec", loadResourceConfig(), loadEgressPolicy());
+    expect(createVm).toHaveBeenCalledWith("empty-vm-session", undefined, loadResourceConfig(), loadEgressPolicy());
   });
-
 
   it("stores a newly created VM on the session", async () => {
     expect(getSession("brand-new")?.vm).toBeUndefined();
