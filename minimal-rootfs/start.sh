@@ -1,6 +1,11 @@
 #!/bin/sh
 set -e
 
+[ -f /etc/profile ] && . /etc/profile 2>/dev/null || true
+if [ -f /etc/environment ]; then
+    export $(cat /etc/environment | grep -v '^#' | xargs) 2>/dev/null || true
+fi
+
 mount -t tmpfs tmpfs /tmp
 mount -t tmpfs -o size=512m,mode=0755 tmpfs /workspace
 

@@ -75,13 +75,14 @@ describe("MCP Server Tools", () => {
   });
 
   describe("listTools", () => {
-    it("lists all 5 tools with correct names", async () => {
+    it("lists all 8 tools with correct names", async () => {
       const { tools } = await client.listTools();
       const names = tools.map((t) => t.name).sort();
       expect(names).toEqual([
         "create_session",
         "execute",
         "list_files",
+        "list_templates",
         "ping",
         "read_file",
         "reset_session",
@@ -131,6 +132,8 @@ describe("MCP Server Tools", () => {
           args: ["hello"],
         }),
         expect.any(Function),
+        60000,
+        undefined,
       );
 
       const text = textOf(result);
@@ -190,8 +193,11 @@ describe("MCP Server Tools", () => {
         "s1",
         expect.objectContaining({ cwd: "subdir", timeout: 5000 }),
         expect.any(Function),
+        60000,
+        undefined,
       );
     });
+
 
     it("handles missing exitCode gracefully", async () => {
       vi.mocked(sendSessionMessage).mockImplementation(
