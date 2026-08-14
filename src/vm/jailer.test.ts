@@ -22,28 +22,42 @@ describe("jailer", () => {
   });
 
   it("stages snapshot artifacts before starting the jail", () => {
-    vi.mocked(fs.statSync).mockReturnValue({ isFile: () => true } as any);
     vi.mocked(fs.existsSync).mockReturnValue(false);
 
-    const jail = prepareJail("abc123", "__exec__");
+    const mockTemplate = {
+      manifest: {
+        name: "node",
+        displayName: "Node",
+        version: "1.0.0",
+        description: "Node environment",
+        tools: ["node"],
+        baseImage: "alpine",
+        createdAt: "2026-08-10T00:00:00Z",
+      },
+      rootfsPath: "/var/lib/lambda/artifacts/templates/node/rootfs.ext4",
+      snapshotPath: "/var/lib/lambda/artifacts/templates/node/snapshot",
+      memoryPath: "/var/lib/lambda/artifacts/templates/node/memory",
+    };
+
+    const jail = prepareJail("abc123", mockTemplate);
 
     expect(fs.linkSync).toHaveBeenCalledTimes(4);
 
     expect(fs.linkSync).toHaveBeenNthCalledWith(
       1,
-      expect.stringContaining("snapshot-__exec__"),
+      mockTemplate.snapshotPath,
       expect.stringContaining("artifacts/snapshot"),
     );
 
     expect(fs.linkSync).toHaveBeenNthCalledWith(
       2,
-      expect.stringContaining("mem-__exec__"),
+      mockTemplate.memoryPath,
       expect.stringContaining("artifacts/memory"),
     );
 
     expect(fs.linkSync).toHaveBeenNthCalledWith(
       3,
-      expect.stringContaining("rootfs.ext4"),
+      mockTemplate.rootfsPath,
       expect.stringContaining("root/rootfs.ext4"),
     );
 

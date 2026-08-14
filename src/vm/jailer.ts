@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import type { ResolvedTemplate } from "./templates.js";
 
 export interface VmResourceConfig {
   vcpuCount: number;
@@ -60,33 +61,39 @@ function artifactPath(prefix: "snapshot" | "mem", snapshotId: string): string {
   return path.join(ARTIFACTS_DIR, `${prefix}-${snapshotId}`);
 }
 
-export function prepareJail(vmId: string, snapshotId: string): JailPaths {
-  const sourceSnapshot = artifactPath("snapshot", snapshotId);
-  const sourceMemory = artifactPath("mem", snapshotId);
+export function prepareJail(
+  vmId: string,
+  template: ResolvedTemplate,
+): JailPaths {
   const dir = instanceDir(vmId);
   const rootDir = path.join(dir, "root");
   const artifactsDir = path.join(rootDir, "artifacts");
-  console.log(`Preparing jail for VM ${vmId} with snapshot ${snapshotId}`);
-
-  for (const source of [sourceSnapshot, sourceMemory]) {
-    const stat = fs.statSync(source);
-    if (!stat.isFile())
-      throw new Error(`Jailer artifact is not a regular file: ${source}`);
-  }
 
   if (fs.existsSync(dir))
     throw new Error(`Jail directory already exists: ${dir}`);
 
-  fs.mkdirSync(artifactsDir, { recursive: true, mode: 0o755 });
-  fs.linkSync(sourceSnapshot, path.join(artifactsDir, "snapshot"));
-  fs.linkSync(sourceMemory, path.join(artifactsDir, "memory"));
-  fs.linkSync(
-    "/var/lib/lambda/artifacts/rootfs.ext4",
-    path.join(rootDir, "rootfs.ext4"),
-  );
+  const runDir = path.join(rootDir, "run");
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.mkdirSync(artifactsDir, { recursive: true });
+
+  try {
+    fs.chmodSync(dir, 0o777);
+    fs.chmodSync(rootDir, 0o777);
+    fs.chmodSync(runDir, 0o777);
+    fs.chmodSync(artifactsDir, 0o777);
+
+    fs.chownSync(dir, FIRECRACKER_UID, FIRECRACKER_GID);
+    fs.chownSync(rootDir, FIRECRACKER_UID, FIRECRACKER_GID);
+    fs.chownSync(runDir, FIRECRACKER_UID, FIRECRACKER_GID);
+    fs.chownSync(artifactsDir, FIRECRACKER_UID, FIRECRACKER_GID);
+  } catch {}
+
+  fs.linkSync(template.snapshotPath, path.join(artifactsDir, "snapshot"));
+  fs.linkSync(template.memoryPath, path.join(artifactsDir, "memory"));
+  fs.linkSync(template.rootfsPath, path.join(rootDir, "rootfs.ext4"));
 
   fs.linkSync(
-    "/var/lib/lambda/artifacts/vmlinux",
+    path.join(ARTIFACTS_DIR, "vmlinux"),
     path.join(rootDir, "vmlinux"),
   );
 
@@ -167,7 +174,10 @@ export function removeJail(instancePath: string): void {
   fs.rmSync(resolved, { recursive: true, force: true });
 }
 
-export function prepareSnapshotCreationJail(vmId: string): JailPaths {
+export function prepareSnapshotCreationJail(
+  vmId: string,
+  customRootfsPath?: string,
+): JailPaths {
   const dir = instanceDir(vmId);
   const rootDir = path.join(dir, "root");
 
@@ -178,21 +188,32 @@ export function prepareSnapshotCreationJail(vmId: string): JailPaths {
     throw new Error(`Jail directory already exists: ${dir}`);
   }
 
-  fs.mkdirSync(runDir, { recursive: true, mode: 0o755 });
-  fs.mkdirSync(artifactsDir, { recursive: true, mode: 0o755 });
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.mkdirSync(artifactsDir, { recursive: true });
 
-  fs.chownSync(runDir, FIRECRACKER_UID, FIRECRACKER_GID);
-  fs.chownSync(artifactsDir, FIRECRACKER_UID, FIRECRACKER_GID);
+  try {
+    fs.chmodSync(dir, 0o777);
+    fs.chmodSync(rootDir, 0o777);
+    fs.chmodSync(runDir, 0o777);
+    fs.chmodSync(artifactsDir, 0o777);
+
+    fs.chownSync(dir, FIRECRACKER_UID, FIRECRACKER_GID);
+    fs.chownSync(rootDir, FIRECRACKER_UID, FIRECRACKER_GID);
+    fs.chownSync(runDir, FIRECRACKER_UID, FIRECRACKER_GID);
+    fs.chownSync(artifactsDir, FIRECRACKER_UID, FIRECRACKER_GID);
+  } catch {}
 
   fs.linkSync(
     path.join(ARTIFACTS_DIR, "vmlinux"),
     path.join(rootDir, "vmlinux"),
   );
 
+  const rootfsSource = customRootfsPath || path.join(ARTIFACTS_DIR, "rootfs.ext4");
   fs.linkSync(
-    path.join(ARTIFACTS_DIR, "rootfs.ext4"),
+    rootfsSource,
     path.join(rootDir, "rootfs.ext4"),
   );
+
 
   return {
     id: vmId,
