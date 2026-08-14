@@ -138,7 +138,7 @@ The build script will:
 1. Build the Docker rootfs.
 2. Extract the filesystem image into an ext4 rootfs.
 3. Provision a Firecracker jail and boot the guest VM until `READY`.
-4. Create the Firecracker snapshot state and write `template.json` metadata to `/var/lib/lambda/artifacts/templates/<name>/`.
+4. Create the Firecracker snapshot state and write `template.json` metadata to `/var/lib/agent-sandbox/artifacts/templates/<name>/`.
 
 ---
 
@@ -280,8 +280,8 @@ echo "net.ipv4.ip_forward = 1" | sudo tee /etc/sysctl.d/99-ip-forward.conf
 ### Install
 
 ```bash
-git clone https://github.com/vivek1504/lambda.git
-cd lambda
+git clone https://github.com/vivek1504/agent-sandbox.git
+cd agent-sandbox
 npm install
 ```
 
@@ -290,11 +290,11 @@ npm install
 Download the guest kernel image:
 
 ```bash
-sudo mkdir -p /var/lib/lambda/artifacts
-wget https://github.com/vivek1504/lambda/releases/download/Beta/vmlinux
-sudo mv vmlinux /var/lib/lambda/artifacts/
-sudo chown -R root:firecracker /var/lib/lambda/artifacts
-sudo chmod 750 /var/lib/lambda/artifacts
+sudo mkdir -p /var/lib/agent-sandbox/artifacts
+wget https://github.com/vivek1504/agent-sandbox/releases/download/Beta/vmlinux
+sudo mv vmlinux /var/lib/agent-sandbox/artifacts/
+sudo chown -R root:firecracker /var/lib/agent-sandbox/artifacts
+sudo chmod 750 /var/lib/agent-sandbox/artifacts
 ```
 
 ### Build Template Snapshots
@@ -349,8 +349,8 @@ All configuration is via environment variables:
 | `MCP_AUTH_TOKEN` | *(Required)* | Bearer token for MCP SSE endpoint |
 | `FIRECRACKER_BIN` | `/usr/local/bin/firecracker` | Path to Firecracker binary |
 | `FIRECRACKER_JAILER_BIN` | `/usr/local/bin/jailer` | Path to Jailer binary |
-| `FIRECRACKER_JAIL_BASE` | `/var/lib/lambda/jailer` | Base directory for Jailer chroots |
-| `FIRECRACKER_ARTIFACTS_DIR` | `/var/lib/lambda/artifacts` | Snapshot, memory, kernel, and template storage |
+| `FIRECRACKER_JAIL_BASE` | `/var/lib/agent-sandbox/jailer` | Base directory for Jailer chroots |
+| `FIRECRACKER_ARTIFACTS_DIR` | `/var/lib/agent-sandbox/artifacts` | Snapshot, memory, kernel, and template storage |
 | `FIRECRACKER_UID` | `997` | UID for the Firecracker process |
 | `FIRECRACKER_GID` | `982` | GID for the Firecracker process |
 | `VM_VCPU_COUNT` | `1` | Number of guest vCPUs configured for the VM |
