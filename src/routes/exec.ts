@@ -1,12 +1,17 @@
 import { Router } from "express";
 import { sendSessionMessage, ensureSession } from "../session/gateway.js";
 import { destroySession, getSession, getAllSessions } from "../session/session.js";
+import { listTemplates } from "../vm/templates.js";
 
 export const execRouter = Router();
 
+execRouter.get("/templates", (_req, res) => {
+  res.json({ templates: listTemplates() });
+});
+
 execRouter.post("/:sessionId/execute", async (req, res) => {
   const { sessionId } = req.params;
-  const { command, args, cwd, env, timeout } = req.body;
+  const { command, args, cwd, env, timeout, template } = req.body;
 
   if (!command) return res.status(400).json({ error: "command is required" });
 
@@ -27,6 +32,8 @@ execRouter.post("/:sessionId/execute", async (req, res) => {
         (chunk) => {
           res.write(JSON.stringify({ type: "stream", ...chunk, ts: Date.now() }) + "\n");
         },
+        60000,
+        template,
       );
 
       res.write(JSON.stringify({ type: "result", ...result.data }) + "\n");
@@ -47,6 +54,8 @@ execRouter.post("/:sessionId/execute", async (req, res) => {
       (chunk) => {
         output.push({ stream: chunk.stream, data: chunk.data, ts: Date.now() });
       },
+      60000,
+      template,
     );
 
     res.json({

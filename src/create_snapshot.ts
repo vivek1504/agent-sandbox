@@ -98,11 +98,13 @@ export function waitForVmReady(fc: { stdout: NodeJS.EventEmitter }) {
   return new Promise<void>((resolve, reject) => {
     let buffer = "";
     const timeout = setTimeout(
-      () => reject(new Error("VM startup timeout")),
+      () => reject(new Error(`VM startup timeout. Output received so far:\n${buffer}`)),
       50_000,
     );
     fc.stdout.on("data", (data: Buffer) => {
-      buffer += data.toString();
+      const str = data.toString();
+      console.log("[VM Output]:", str.trim());
+      buffer += str;
       if (buffer.includes("READY")) {
         clearTimeout(timeout);
         setTimeout(resolve, 200);
@@ -112,20 +114,30 @@ export function waitForVmReady(fc: { stdout: NodeJS.EventEmitter }) {
 }
 
 async function main() {
-  const functionId = "exec";
+  const templateName = process.argv[2] || "node";
+  const customRootfsPath = process.argv[3];
+  const functionId = `snap-${templateName}`;
 
-  fs.mkdirSync("snapshot", { recursive: true });
-  fs.mkdirSync("mem", { recursive: true });
+  const templateDir = path.join(ARTIFACTS_DIR, "templates", templateName);
+  fs.mkdirSync(templateDir, { recursive: true });
 
-  const image = path.resolve("rootfs.ext4");
-  if (!fs.existsSync(image)) {
-    console.error("ERROR: rootfs.ext4 not found in project root");
+  const rootfsSource = customRootfsPath
+    ? path.resolve(customRootfsPath)
+    : path.resolve("rootfs.ext4");
+
+  if (!fs.existsSync(rootfsSource)) {
+    console.error(`ERROR: rootfs file not found at ${rootfsSource}`);
     process.exit(1);
   }
 
-  const jail = prepareSnapshotCreationJail(functionId);
+  const templateRootfs = path.join(templateDir, "rootfs.ext4");
+  if (path.resolve(rootfsSource) !== path.resolve(templateRootfs)) {
+    fs.copyFileSync(rootfsSource, templateRootfs);
+  }
 
-  console.log("Setting up network namespace for snapshot creation...");
+  const jail = prepareSnapshotCreationJail(functionId, templateRootfs);
+
+  console.log(`Setting up network namespace for template "${templateName}" snapshot creation...`);
   let networkInfo: VmNetworkInfo | undefined;
   try {
     networkInfo = setupVmNetwork(functionId);
@@ -174,17 +186,35 @@ async function main() {
     `  ${memPath} (${(fs.statSync(memPath).size / 1024 / 1024).toFixed(1)} MB)`,
   );
 
-  fs.renameSync(
-    snapshotPath,
-    path.join(ARTIFACTS_DIR, `snapshot-${functionId}`),
+  const targetSnapshot = path.join(templateDir, "snapshot");
+  const targetMemory = path.join(templateDir, "memory");
+
+  fs.copyFileSync(snapshotPath, targetSnapshot);
+  fs.copyFileSync(memPath, targetMemory);
+
+  const manifest = {
+    name: templateName,
+    displayName: templateName.charAt(0).toUpperCase() + templateName.slice(1),
+    version: "1.0.0",
+    description: `${templateName} environment template`,
+    tools: [templateName, "sh"],
+    baseImage: "alpine:3.20",
+    createdAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(
+    path.join(templateDir, "template.json"),
+    JSON.stringify(manifest, null, 2),
   );
 
-  fs.renameSync(memPath, path.join(ARTIFACTS_DIR, `mem-${functionId}`));
+  if (templateName === "node") {
+    fs.copyFileSync(snapshotPath, path.join(ARTIFACTS_DIR, "snapshot-exec"));
+    fs.copyFileSync(memPath, path.join(ARTIFACTS_DIR, "mem-exec"));
+    if (!fs.existsSync(path.join(ARTIFACTS_DIR, "rootfs.ext4"))) {
+      fs.copyFileSync(templateRootfs, path.join(ARTIFACTS_DIR, "rootfs.ext4"));
+    }
+  }
 
-  console.log("\nDone! Files created:");
-  console.log(
-    "\nYou can now start the server and use the /exec and /mcp endpoints.",
-  );
+  console.log(`\nDone! Template "${templateName}" created at ${templateDir}`);
 
   if (networkInfo) {
     console.log("Cleaning up snapshot network namespace...");
@@ -199,6 +229,17 @@ async function main() {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main().catch((err) => {
     console.error("Snapshot creation failed:", err);
+    try {
+      const templateName = process.argv[2] || "node";
+      const fcLogPath = `/var/lib/lambda/jailer/firecracker/snap-${templateName}/root/firecracker.log`;
+      if (fs.existsSync(fcLogPath)) {
+        console.error("\n=== Firecracker Internal Log ===");
+        console.error(fs.readFileSync(fcLogPath, "utf-8"));
+        console.error("===============================\n");
+      }
+    } catch (logErr) {
+      console.error("Could not read firecracker log:", logErr);
+    }
     process.exit(1);
   });
 }

@@ -16,15 +16,16 @@ import { type EgressPolicy, loadEgressPolicy } from "../vm/egress-policy.js";
 
 export async function ensureSession(
   sessionId: string,
+  templateName?: string,
   resources: VmResourceConfig = loadResourceConfig(),
   egressPolicy: EgressPolicy = loadEgressPolicy(),
 ): Promise<Vm> {
   let session = getSession(sessionId);
-  session = session || createSession(sessionId);
+  session = session || createSession(sessionId, templateName);
   if (session.vm) return session.vm;
   if (session.creation) return session.creation;
 
-  session.creation = createVm(sessionId, "exec", resources, egressPolicy)
+  session.creation = createVm(sessionId, templateName, resources, egressPolicy)
 
     .then(async (vm) => {
       if (getSession(sessionId) !== session || session.state === "destroying") {
@@ -47,8 +48,9 @@ export async function sendSessionMessage(
   message: Record<string, any>,
   onStream?: (chunk: any) => void,
   timeout: number = 60000,
+  templateName?: string,
 ): Promise<any> {
-  const vm = await ensureSession(sessionId);
+  const vm = await ensureSession(sessionId, templateName);
   touchSession(sessionId);
 
   const id = message.id || crypto.randomUUID();

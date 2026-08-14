@@ -15,6 +15,7 @@ AI agents need to *do things*: write code and run it, install libraries, curl en
 - **Hardware-level isolation** — each session runs in its own Linux kernel. A misbehaving agent cannot escape to the host or affect other sessions.
 - **Millisecond startup** — pre-snapshotted VM state restores in 1–5ms, so agents don't wait for environments to spin up.
 - **Full Linux environment** — agents get a real filesystem, process table, and network stack. If it runs on Linux, it runs here.
+- **Pre-built & Custom Templates** — provision sessions with pre-baked Node.js, Python, Go, or custom Dockerfile environments.
 - **Ephemeral by design** — sessions are stateless, time-bounded, and automatically reaped. No cleanup, no drift.
 
 ---
@@ -32,10 +33,10 @@ AI agents need to *do things*: write code and run it, install libraries, curl en
 │         │                   │                               │
 │         └───────┬───────────┘                               │
 │                 ▼                                           │
-│         ┌──────────────┐                                    │
-│         │   Session    │  create / touch / reap / destroy   │
-│         │   Gateway    │                                    │
-│         └──────┬───────┘                                    │
+│         ┌──────────────┐    ┌───────────────────────────┐   │
+│         │   Session    │───►│    Template Registry      │   │
+│         │   Gateway    │    │ (Node, Python, Go, etc.)  │   │
+│         └──────┬───────┘    └───────────────────────────┘   │
 │                ▼                                            │
 │    ┌───────────────────────┐                                │
 │    │     VM Manager        │                                │
@@ -63,8 +64,8 @@ AI agents need to *do things*: write code and run it, install libraries, curl en
 
 ### How It Works
 
-1. **Session request arrives** via the REST API or MCP protocol.
-2. The **Session Gateway** lazily creates a VM — restoring a pre-snapshotted Firecracker instance via the Jailer in ~1–5ms.
+1. **Session request arrives** via the REST API or MCP protocol, specifying an optional `template` (e.g. `node`, `python`, `go`).
+2. The **Session Gateway** looks up the pre-built snapshot artifacts from the **Template Registry** and lazily creates a VM — restoring a pre-snapshotted Firecracker instance in ~1–5ms.
 3. Each VM is placed inside its own **Linux network namespace** with a dedicated veth pair, TAP device, and NAT rules — giving the guest full outbound internet access while remaining isolated from other VMs.
 4. Commands are sent to the guest **runtime** over a **vsock** channel. The runtime executes processes, manipulates the filesystem, and streams results back.
 5. When a session is idle for 30 minutes (configurable), the **session reaper** tears down the VM, jail directory, and network namespace.
@@ -77,12 +78,67 @@ Each agent session provides:
 
 | Capability | Details |
 |---|---|
-| **Execute commands** | Run any binary — `node`, `sh`, `curl`, etc. Stdout/stderr streamed in real-time.
+| **Multiple Environments** | Pre-built templates for Node.js, Python, Go, and custom Dockerfiles. |
+| **Execute commands** | Run any binary — `node`, `python3`, `go`, `sh`, `curl`, etc. Stdout/stderr streamed in real-time. |
 | **Filesystem access** | Read, write, and list files within an isolated `/workspace` (tmpfs). |
-| **Install packages** | Full network access — `npm install`, `apt-get` all work. |
+| **Install packages** | Full network access — `npm install`, `pip install`, `go get` all work. |
 | **Process management** | Per-command timeouts, cancellation via `SIGTERM`/`SIGKILL`, exit code tracking. |
 | **Network access** | Each VM has its own network stack with DNS, outbound HTTP/HTTPS, and NAT. |
 | **Session persistence** | Workspace state persists across commands within a session. |
+
+---
+
+## Environment Templates & Custom Snapshots
+
+Agent Sandbox supports pre-snapshotted environment templates. Environments boot in milliseconds with pre-installed runtimes and dependencies.
+
+### Bundled Templates
+
+- **`node`** (Default): Alpine 3.20 + Node.js 22 + npm + git + curl
+- **`python`**: Alpine 3.20 + Python 3.12 + pip + git + curl
+- **`go`**: Alpine 3.20 + Go 1.23 + git + curl
+
+### Building Templates
+
+Use the included build pipeline script to build pre-configured or custom templates:
+
+```bash
+# Build the Node.js template snapshot
+sudo ./templates/build.sh node
+
+# Build the Python template snapshot
+sudo ./templates/build.sh python
+
+# Build the Go template snapshot
+sudo ./templates/build.sh go
+```
+
+### Creating Custom Environment Templates
+
+You can define custom environment templates by creating a directory under `templates/<your-template-name>/` with a `Dockerfile`:
+
+```dockerfile
+FROM agent-sandbox-base:latest
+
+# Install custom tools and runtimes
+RUN apk add --no-cache ruby rust cargo postgresql-client
+
+LABEL template.name="data-science" \
+      template.displayName="Data Science & Rust" \
+      template.tools="ruby,rustc,cargo,psql"
+```
+
+Then generate the snapshot:
+
+```bash
+sudo ./templates/build.sh data-science
+```
+
+The build script will:
+1. Build the Docker rootfs.
+2. Extract the filesystem image into an ext4 rootfs.
+3. Provision a Firecracker jail and boot the guest VM until `READY`.
+4. Create the Firecracker snapshot state and write `template.json` metadata to `/var/lib/lambda/artifacts/templates/<name>/`.
 
 ---
 
@@ -95,18 +151,21 @@ Agent Sandbox exposes two interfaces — pick whichever fits your integration:
 Session-scoped HTTP endpoints for direct integration:
 
 ```bash
-# Execute a command
+# List available environment templates
+curl http://localhost:3000/exec/templates
+
+# Execute a command in a session (specifying template)
 curl -X POST http://localhost:3000/exec/session1/execute \
   -H "Content-Type: application/json" \
-  -d '{"command":"node","args":["-e","console.log(\"hello from the sandbox\")"]}'
+  -d '{"template":"python","command":"python3","args":["-c","print(\"hello from python template\")"]}'
 
 # Write a file
 curl -X POST http://localhost:3000/exec/session1/write \
   -H "Content-Type: application/json" \
-  -d '{"path":"main.js","content":"console.log(\"hello\")"}'
+  -d '{"path":"main.py","content":"print(\"hello\")"}'
 
 # Read a file
-curl http://localhost:3000/exec/session1/read?path=main.js
+curl http://localhost:3000/exec/session1/read?path=main.py
 
 # List files
 curl http://localhost:3000/exec/session1/files?recursive=true
@@ -124,7 +183,8 @@ A first-class MCP server — connect any MCP-compatible AI agent (Claude, GPT, c
 
 | Tool | Description |
 |---|---|
-| `create_session` | Provision a new isolated environment |
+| `create_session` | Provision a new isolated environment (supports `template` parameter) |
+| `list_templates` | List available environment templates (`node`, `python`, `go`, etc.) |
 | `execute` | Run a command inside the session's VM |
 | `write_file` | Write content to the session workspace |
 | `read_file` | Read a file from the session workspace |
@@ -171,6 +231,7 @@ Every session gets defense-in-depth isolation:
 - **Linux host** with KVM support (`/dev/kvm` must be accessible)
 - [**Firecracker**](https://github.com/firecracker-microvm/firecracker) and **Jailer** binaries installed
 - **Node.js** v18+
+- **Docker** (required for template build pipeline)
 - **Root access** (required for Jailer, network namespaces, and iptables)
 
 #### Install Firecracker & Jailer
@@ -224,39 +285,32 @@ cd lambda
 npm install
 ```
 
-### Prepare Artifacts
+### Prepare Kernel Artifact
 
-Download the pre-built kernel and rootfs from the [releases page](https://github.com/vivek1504/lambda/releases):
-
-```bash
-# Download kernel and rootfs
-wget https://github.com/vivek1504/lambda/releases/download/Beta/vmlinux
-wget https://github.com/vivek1504/lambda/releases/download/Beta/rootfs.ext4.gz
-gunzip rootfs.ext4.gz
-```
-
-Place them where the Jailer expects them, with the correct ownership:
+Download the guest kernel image:
 
 ```bash
 sudo mkdir -p /var/lib/lambda/artifacts
-sudo cp vmlinux rootfs.ext4 /var/lib/lambda/artifacts/
+wget https://github.com/vivek1504/lambda/releases/download/Beta/vmlinux
+sudo mv vmlinux /var/lib/lambda/artifacts/
 sudo chown -R root:firecracker /var/lib/lambda/artifacts
 sudo chmod 750 /var/lib/lambda/artifacts
 ```
 
-### Create the Base Snapshot
+### Build Template Snapshots
 
-The system restores VMs from a pre-initialized snapshot. Create it once:
+Build the default environment templates (`node`, `python`, `go`):
 
 ```bash
-# Build the TypeScript
-npx tsc -b
+# Build Node.js template
+sudo ./templates/build.sh node
 
-# Create the snapshot (requires root for networking + jailer)
-sudo node dist/create_snapshot.js
+# Build Python template
+sudo ./templates/build.sh python
+
+# Build Go template
+sudo ./templates/build.sh go
 ```
-
-This boots a fresh VM, waits for the guest runtime to signal `READY`, pauses it, and saves the snapshot + memory state to `/var/lib/lambda/artifacts/`. The process takes about 5–10 seconds.
 
 ### Start the Server
 
@@ -273,22 +327,13 @@ sudo npm start
 # Health check
 curl http://localhost:3000/health
 
-# Run a command in a new session
+# List loaded templates
+curl http://localhost:3000/exec/templates
+
+# Run a command in a new Python session
 curl -X POST http://localhost:3000/exec/test-session/execute \
   -H "Content-Type: application/json" \
-  -d '{ "command": "uname", "args": ["-a"] }'
-```
-
-You should see the guest kernel info from inside the microVM:
-
-```json
-{
-  "exitCode": 0,
-  "duration": 4,
-  "output": [
-    { "stream": "stdout", "data": "Linux (none) 6.1.155 ... x86_64 GNU/Linux\n" }
-  ]
-}
+  -d '{ "template": "python", "command": "python3", "args": ["--version"] }'
 ```
 
 ---
@@ -305,7 +350,7 @@ All configuration is via environment variables:
 | `FIRECRACKER_BIN` | `/usr/local/bin/firecracker` | Path to Firecracker binary |
 | `FIRECRACKER_JAILER_BIN` | `/usr/local/bin/jailer` | Path to Jailer binary |
 | `FIRECRACKER_JAIL_BASE` | `/var/lib/lambda/jailer` | Base directory for Jailer chroots |
-| `FIRECRACKER_ARTIFACTS_DIR` | `/var/lib/lambda/artifacts` | Snapshot, memory, kernel, and rootfs storage |
+| `FIRECRACKER_ARTIFACTS_DIR` | `/var/lib/lambda/artifacts` | Snapshot, memory, kernel, and template storage |
 | `FIRECRACKER_UID` | `997` | UID for the Firecracker process |
 | `FIRECRACKER_GID` | `982` | GID for the Firecracker process |
 | `VM_VCPU_COUNT` | `1` | Number of guest vCPUs configured for the VM |
@@ -363,7 +408,7 @@ npm run test:watch
 npm run test:coverage
 ```
 
-Tests cover the session gateway, VM protocol, jailer path handling, cleanup lifecycle, network setup, egress policies, and MCP tool integration using [Vitest](https://vitest.dev/) and [Supertest](https://github.com/ladjs/supertest).
+Tests cover the session gateway, VM protocol, jailer path handling, cleanup lifecycle, network setup, egress policies, template registry, and MCP tool integration using [Vitest](https://vitest.dev/) and [Supertest](https://github.com/ladjs/supertest).
 
 ---
 
@@ -375,13 +420,14 @@ src/
 ├── app.ts                   # Express app — routes, middleware, metrics
 ├── logger.ts                # Structured logging (Pino) with redaction
 ├── metrics.ts               # Prometheus metrics definitions
-├── create_snapshot.ts       # One-shot script to create the base VM snapshot
+├── create_snapshot.ts       # One-shot script to create VM template snapshots
 ├── session/
 │   ├── session.ts           # Session state machine + reaper
 │   └── gateway.ts           # Lazy VM creation + message dispatch
 ├── vm/
 │   ├── vm-manager.ts        # VM lifecycle — create, restore, teardown
 │   ├── jailer.ts            # Jailer integration — chroot, hardlinks, paths
+│   ├── templates.ts         # Template registry — discovery, validation & metadata
 │   ├── networking.ts        # Per-VM network namespace & egress controls
 │   ├── egress-policy.ts     # Config parser for DNS, IP/Port & TC egress policies
 │   ├── egress-policy.test.ts # Unit tests for egress policies
@@ -394,6 +440,17 @@ src/
     ├── server.ts            # MCP tool definitions
     ├── routes.ts            # SSE transport + auth middleware
     └── stdio.ts             # Stdio transport for local MCP
+
+templates/
+├── build.sh                 # Template build pipeline script (Docker -> ext4 -> snapshot)
+├── base/
+│   └── Dockerfile           # Minimal guest base image (socat, node, runtime, start.sh)
+├── node/
+│   └── Dockerfile           # Node.js environment template
+├── python/
+│   └── Dockerfile           # Python 3.12 environment template
+└── go/
+    └── Dockerfile           # Go 1.23 environment template
 
 minimal-rootfs/
 ├── start.sh                 # Guest init — networking, runtime, socat bridge
@@ -420,11 +477,11 @@ minimal-rootfs/
 
 ## Roadmap
 
+- [x] Pre-built environment snapshots (Node.js, Python, Go, Custom Dockerfiles)
 - [ ] Per-session resource limits (CPU, memory, disk, network bandwidth)
 - [ ] Persistent workspace volumes across sessions
 - [ ] Multi-host execution with session routing
 - [ ] WebSocket streaming for real-time output
-- [ ] Pre-built environment snapshots (Python, Rust, Go, etc.)
 
 ---
 

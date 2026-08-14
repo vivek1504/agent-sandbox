@@ -3,13 +3,17 @@ import { logger } from "./logger.js";
 import { ensureHostNetworkSetup } from "./vm/networking.js";
 import { vmResourceConfig } from "./metrics.js";
 import { loadResourceConfig } from "./vm/jailer.js";
+import { loadTemplateRegistry, listTemplates } from "./vm/templates.js";
 
 const PORT = process.env.PORT || 3000;
 
 try {
   ensureHostNetworkSetup();
+  loadTemplateRegistry();
+  const templates = listTemplates();
+  logger.info({ templates: templates.map(t => t.name) }, `${templates.length} template(s) loaded`);
 } catch (err) {
-  logger.warn({ err }, "host network setup check failed — VMs may not have internet access");
+  logger.warn({ err }, "host network or template registry setup check failed — VMs may not have internet access or custom templates");
 }
 
 try {

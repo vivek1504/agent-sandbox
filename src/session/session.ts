@@ -11,6 +11,7 @@ export interface Session {
   createdAt: number;
   lastActivityAt: number;
   state: "creating" | "active" | "destroying";
+  template?: string | undefined;
   vm?: Vm;
   creation?: Promise<Vm> | undefined;
 }
@@ -21,12 +22,13 @@ export function getSession(sessionId: string): Session | undefined {
   return sessions.get(sessionId);
 }
 
-export function createSession(sessionId: string): Session {
+export function createSession(sessionId: string, template?: string): Session {
   const session: Session = {
     sessionId,
     createdAt: Date.now(),
     lastActivityAt: Date.now(),
     state: "creating",
+    ...(template ? { template } : {}),
   };
   sessions.set(sessionId, session);
   execSessionsActive.inc();

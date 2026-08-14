@@ -303,6 +303,11 @@ export function setupVmNetwork(
   );
 
   try {
+    execSync(`ip netns delete ${info.nsName} 2>/dev/null`, { stdio: "pipe" });
+    execSync(`ip link delete ${info.vethHost} 2>/dev/null`, { stdio: "pipe" });
+  } catch {}
+
+  try {
     run(`ip netns add ${info.nsName}`, "create namespace");
 
     run(
@@ -432,7 +437,7 @@ export function cleanupStaleNetworkResources(): void {
     const staleNamespaces = nsListOut
       .split("\n")
       .map((line) => line.split(" ")[0]?.trim())
-      .filter((name): name is string => !!name && /^ns-[a-f0-9]{8}$/.test(name));
+      .filter((name): name is string => !!name && /^ns-[A-Za-z0-9_-]+$/.test(name));
 
     if (staleNamespaces.length === 0) return;
 

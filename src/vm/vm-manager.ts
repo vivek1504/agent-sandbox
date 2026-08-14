@@ -3,7 +3,8 @@ import net from "net";
 import axios from "axios";
 import crypto from "crypto";
 import { vmLogger } from "../logger.js";
-import { vmCount, vmCreationTime, vmCreationTotal } from "../metrics.js";
+import { vmCount, vmCreationTime, vmCreationTotal, vmTemplateUsage } from "../metrics.js";
+
 import {
   JAILER_BIN,
   jailerArgs,
@@ -22,6 +23,7 @@ import { type EgressPolicy, loadEgressPolicy } from "./egress-policy.js";
 
 import type { ChildProcessWithoutNullStreams } from "child_process";
 import type { Socket } from "net";
+import { getTemplate, resolveTemplateName } from "./templates.js";
 
 export type VmState = "creating" | "restoring" | "ready" | "busy" | "dead";
 
@@ -39,19 +41,32 @@ export interface Vm {
 
 export async function createVm(
   sessionId: string,
-  snapshotId?: string,
+  templateName?: string,
   resources: VmResourceConfig = loadResourceConfig(),
   egressPolicy: EgressPolicy = loadEgressPolicy(),
+
 ): Promise<Vm> {
   const instanceId = crypto.randomBytes(4).toString("hex");
-  const resolvedSnapshotId = snapshotId || sessionId;
+  const resolveName = resolveTemplateName(templateName)
+  const template = getTemplate(resolveName)!
+
+  const mergedResources = {
+    ...resources,
+    ...(template.manifest.resources?.memSizeMib
+      ? { memSizeMib: template.manifest.resources.memSizeMib }
+      : {}),
+    ...(template.manifest.resources?.vcpuCount
+      ? { vcpuCount: template.manifest.resources.vcpuCount }
+      : {}),
+  };
+
   const start = performance.now();
   let jail: JailPaths | undefined;
   let fc: ChildProcessWithoutNullStreams | undefined;
   let networkInfo: VmNetworkInfo | undefined;
 
   vmLogger.info(
-    { sessionId, instanceId, snapshotId: resolvedSnapshotId, resources, egressPolicy },
+    { sessionId, instanceId, templateName, resources, egressPolicy },
     "creating new VM instance",
   );
   vmCount.inc({ function_id: sessionId, state: "creating" });
@@ -59,9 +74,8 @@ export async function createVm(
   try {
     networkInfo = setupVmNetwork(instanceId, egressPolicy);
 
-
-    jail = prepareJail(instanceId, resolvedSnapshotId);
-    fc = spawn(JAILER_BIN, jailerArgs(instanceId, networkInfo.nsPath, resources));
+    jail = prepareJail(instanceId, template);
+    fc = spawn(JAILER_BIN, jailerArgs(instanceId, networkInfo.nsPath, mergedResources));
     fc.on("error", (err) => {
       vmLogger.error({ instanceId, err }, "jailer process error");
     });
@@ -76,7 +90,7 @@ export async function createVm(
     await waitForFirecrackerApiSocket(jail.apiSocket);
 
     const client = createFcClient(jail.apiSocket);
-    await restoreVm(client, resolvedSnapshotId, jail);
+    await restoreVm(client, jail);
 
     const vm: Vm = {
       id: instanceId,
@@ -91,6 +105,7 @@ export async function createVm(
     const durationSec = (performance.now() - start) / 1000;
     vmCreationTime.observe(durationSec);
     vmCreationTotal.inc({ status: "success" });
+    vmTemplateUsage.inc({ template: resolveName });
     vmCount.dec({ function_id: sessionId, state: "creating" });
     vmCount.inc({ function_id: sessionId, state: "ready" });
 
@@ -188,11 +203,10 @@ export function createFcClient(apiSock: string) {
 
 export async function restoreVm(
   client: any,
-  functionId: string,
   jail: JailPaths,
 ) {
   vmLogger.debug(
-    { functionId, vsock: jail.vsockSocket },
+    { vsock: jail.vsockSocket },
     "restoring VM from snapshot",
   );
 
@@ -210,5 +224,5 @@ export async function restoreVm(
     },
   });
 
-  vmLogger.debug({ functionId }, "VM restored from snapshot");
+  vmLogger.debug("VM restored from snapshot");
 }

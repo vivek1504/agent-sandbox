@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { sendSessionMessage } from "../session/gateway.js";
 import { destroySession } from "../session/session.js";
+import { listTemplates } from "../vm/templates.js";
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -9,21 +10,32 @@ export function createMcpServer(): McpServer {
     version: "1.0.0",
   });
 
-  server.tool("create_session", "Create a new session", {}, () => {
-    const sessionId = crypto.randomUUID()
+  server.tool(
+    "create_session",
+    "Create a new session",
+    {
+      template: z
+        .string()
+        .optional()
+        .describe("Environment template (e.g., node, python, go)"),
+    },
+    ({ template }) => {
+      const sessionId = crypto.randomUUID();
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            sessionId,
-            status: "active"
-          })
-        }
-      ]
-    }
-  })
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              sessionId,
+              template: template ?? "node",
+              status: "active",
+            }),
+          },
+        ],
+      };
+    },
+  );
 
   server.tool(
     "execute",
@@ -43,8 +55,12 @@ export function createMcpServer(): McpServer {
         .number()
         .optional()
         .describe("Timeout in milliseconds (default 30000)"),
+      template: z
+        .string()
+        .optional()
+        .describe("Environment template (used on first call for a session)"),
     },
-    async ({ sessionId, command, args, cwd, timeout }) => {
+    async ({ sessionId, command, args, cwd, timeout, template }) => {
       const parts: string[] = [];
 
       const result = await sendSessionMessage(
@@ -53,6 +69,8 @@ export function createMcpServer(): McpServer {
         (chunk) => {
           parts.push(`[${chunk.stream}] ${chunk.data}`);
         },
+        60000,
+        template,
       );
 
       const exitCode = result.data?.exitCode ?? -1;
@@ -64,6 +82,22 @@ export function createMcpServer(): McpServer {
       };
     },
   );
+
+  server.tool(
+    "list_templates",
+    "List available VM environment templates.",
+    {},
+    async () => {
+      const templates = listTemplates();
+      const listing = templates
+        .map((t) => `• ${t.name} — ${t.displayName}: ${t.tools.join(", ")}`)
+        .join("\n");
+      return {
+        content: [{ type: "text", text: listing || "(no templates available)" }],
+      };
+    },
+  );
+
 
 
   server.tool(
