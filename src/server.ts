@@ -1,6 +1,8 @@
 import { app } from "./app.js";
 import { logger } from "./logger.js";
-import { ensureHostNetworkSetup } from "./vm/networking.js";
+import { ensureHostNetworkSetup, recoverUsedSlots } from "./vm/networking.js";
+import { sweepOrphanedResources } from "./vm/orphan-sweep.js";
+import { installShutdownHandler } from "./shutdown.js";
 import { vmResourceConfig } from "./metrics.js";
 import { loadResourceConfig } from "./vm/jailer.js";
 import { loadTemplateRegistry, listTemplates } from "./vm/templates.js";
@@ -8,6 +10,8 @@ import { loadTemplateRegistry, listTemplates } from "./vm/templates.js";
 const PORT = process.env.PORT || 3000;
 
 try {
+  sweepOrphanedResources();
+  recoverUsedSlots();
   ensureHostNetworkSetup();
   loadTemplateRegistry();
   const templates = listTemplates();
@@ -40,6 +44,7 @@ process.on("unhandledRejection", (reason) => {
   logger.fatal({ err: reason }, "unhandled rejection");
 });
 
-app.listen(PORT, () => {
+const httpServer = app.listen(PORT, () => {
   logger.info({ port: PORT }, `server listening on http://localhost:${PORT}`);
 });
+installShutdownHandler(httpServer);
