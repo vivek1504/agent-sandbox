@@ -13,6 +13,7 @@ import crypto from "crypto";
 import { createVm, type Vm } from "../vm/vm-manager.js";
 import { type VmResourceConfig, loadResourceConfig } from "../vm/jailer.js";
 import { type EgressPolicy, loadEgressPolicy } from "../vm/egress-policy.js";
+import { addEntry } from "./manifest.js";
 
 export async function ensureSession(
   sessionId: string,
@@ -34,6 +35,17 @@ export async function ensureSession(
       }
       session.vm = vm;
       session.state = "active";
+      if (vm.networkInfo && vm.jailDir) {
+        addEntry({
+          sessionId,
+          vmId: vm.id,
+          createdAt: session.createdAt,
+          slot: vm.networkInfo.slot,
+          nsName: vm.networkInfo.nsName,
+          jailDir: vm.jailDir,
+          templateName,
+        });
+      }
       return vm;
     })
     .finally(() => {

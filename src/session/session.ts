@@ -5,6 +5,7 @@ import {
   execSessionsActive,
   execSessionDurationSeconds,
 } from "../metrics.js";
+import { removeEntry } from "./manifest.js";
 
 export interface Session {
   sessionId: string;
@@ -54,6 +55,7 @@ export async function destroySession(sessionId: string): Promise<boolean> {
   if (session.vm) await cleanupVm(sessionId, session.vm);
 
   sessions.delete(sessionId);
+  removeEntry(sessionId);
   execSessionsActive.dec();
   execSessionDurationSeconds.observe((Date.now() - session.createdAt) / 1000);
   sessionLogger.info({ sessionId }, "session destroyed");
