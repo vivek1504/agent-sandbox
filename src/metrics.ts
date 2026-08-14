@@ -121,3 +121,11 @@ export const vmEgressPolicyApplied = new Counter({
   registers: [register],
 });
 
+export const vmTemplateUsage = new Counter({
+  name: "vm_template_usage_total",
+  help: "VMs created by template name",
+  labelNames: ["template"],
+  registers: [register],
+});
+
+
