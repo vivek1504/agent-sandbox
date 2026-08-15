@@ -4,6 +4,9 @@ export interface SandboxClientOptions {
   /** Base URL (default: "http://localhost:3000"). */
   baseUrl?: string;
 
+  /** API Key for authentication (e.g. "sk_test_..."). */
+  apiKey?: string;
+
   /** Default template (default: "node"). */
   defaultTemplate?: string;
 
