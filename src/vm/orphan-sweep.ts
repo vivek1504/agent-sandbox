@@ -36,7 +36,7 @@ export function sweepOrphanedResources(): void {
 
 export function killOrphanedProcesses(name: string): void {
   try {
-    const pids = execSync(`pgrep -f ${name}`, { encoding: "utf-8" })
+    const pids = execSync(`pgrep -x ${name}`, { encoding: "utf-8" })
       .trim()
       .split("\n")
       .map((s) => s.trim())
@@ -51,8 +51,12 @@ export function killOrphanedProcesses(name: string): void {
       try {
         process.kill(pid, "SIGKILL");
         vmLogger.info({ pid, process: name }, "killed orphaned process");
-      } catch (err) {
-        vmLogger.debug({ pid, err }, "could not kill process (may have already exited)");
+      } catch (err: any) {
+        if (err?.code === "ESRCH") {
+          vmLogger.debug({ pid, process: name }, "could not kill process (may have already exited)");
+        } else {
+          vmLogger.warn({ pid, process: name, err }, "failed to kill orphaned process");
+        }
       }
     }
   } catch {
@@ -88,15 +92,19 @@ export function sweepJailDirectories(): void {
 }
 
 export function sweepCgroupDirectories(): void {
-  const cgroupRoots = ["/sys/fs/cgroup", "/sys/fs/cgroup/cpu", "/sys/fs/cgroup/memory"];
+  const cgroupParents = [
+    "/sys/fs/cgroup/firecracker",
+    "/sys/fs/cgroup/cpu/firecracker",
+    "/sys/fs/cgroup/memory/firecracker",
+  ];
 
-  for (const root of cgroupRoots) {
+  for (const parentDir of cgroupParents) {
     try {
-      if (!fs.existsSync(root)) continue;
-      const entries = fs.readdirSync(root);
-      const fcDirs = entries.filter((e) => e.startsWith("firecracker"));
-      for (const dir of fcDirs) {
-        const fullPath = path.join(root, dir);
+      if (!fs.existsSync(parentDir)) continue;
+      const entries = fs.readdirSync(parentDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const fullPath = path.join(parentDir, entry.name);
         try {
           fs.rmSync(fullPath, { recursive: true, force: true });
           vmLogger.debug({ path: fullPath }, "removed orphaned cgroup");
@@ -105,7 +113,7 @@ export function sweepCgroupDirectories(): void {
         }
       }
     } catch (err) {
-      vmLogger.debug({ root, err }, "could not scan cgroup directory");
+      vmLogger.debug({ parentDir, err }, "could not scan cgroup parent directory");
     }
   }
 }

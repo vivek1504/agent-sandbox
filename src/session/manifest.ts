@@ -13,7 +13,7 @@ export interface ManifestEntry {
 }
 
 export function getManifestPath(): string {
-  return process.env.SESSION_MANIFEST_PATH ?? "/var/lib/lambda/sessions.json";
+  return process.env.SESSION_MANIFEST_PATH ?? "/var/lib/agent-sandbox/sessions.json";
 }
 
 let entries: ManifestEntry[] = [];

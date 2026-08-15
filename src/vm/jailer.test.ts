@@ -34,9 +34,9 @@ describe("jailer", () => {
         baseImage: "alpine",
         createdAt: "2026-08-10T00:00:00Z",
       },
-      rootfsPath: "/var/lib/lambda/artifacts/templates/node/rootfs.ext4",
-      snapshotPath: "/var/lib/lambda/artifacts/templates/node/snapshot",
-      memoryPath: "/var/lib/lambda/artifacts/templates/node/memory",
+      rootfsPath: "/var/lib/agent-sandbox/artifacts/templates/node/rootfs.ext4",
+      snapshotPath: "/var/lib/agent-sandbox/artifacts/templates/node/snapshot",
+      memoryPath: "/var/lib/agent-sandbox/artifacts/templates/node/memory",
     };
 
     const jail = prepareJail("abc123", mockTemplate);
