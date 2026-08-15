@@ -258,6 +258,54 @@ Every session gets defense-in-depth isolation:
 
 ---
 
+## Authentication & Key Management
+
+Agent Sandbox supports API key-based authentication with scope-based access control (`exec`, `admin`, `metrics`) and per-key rate limiting.
+
+### Managing Keys via CLI
+
+Use the key management CLI to create, list, rotate, or revoke API keys:
+
+```bash
+# Create a key with default 'exec' scope
+npm run keys create "my-agent-key"
+
+# Create an admin key with custom rate limit (100 req/min)
+npm run keys create "admin-key" --scopes exec,admin,metrics --rate-limit 100
+
+# List all keys
+npm run keys list
+
+# Rotate a key
+npm run keys rotate <key-id>
+
+# Revoke a key
+npm run keys revoke <key-id>
+```
+
+### Authentication Usage
+
+API keys can be supplied via HTTP headers, query parameters, or the SDK:
+
+```bash
+# Authorization Header
+curl -H "Authorization: Bearer sk_test_..." http://localhost:3000/exec/templates
+
+# X-API-Key Header
+curl -H "X-API-Key: sk_test_..." http://localhost:3000/exec/templates
+```
+
+```ts
+import { Sandbox } from "@agent-sandbox/sdk";
+
+const sandbox = new Sandbox({
+  // AUTH_KEY_PREFIX e.g. 'sk_test_' is read from environment variables
+  apiKey: `${process.env.AUTH_KEY_PREFIX}example-key`,
+});
+```
+
+---
+
 ## Getting Started
 
 ### Prerequisites
@@ -515,7 +563,7 @@ minimal-rootfs/
 | Host ↔ VM IPC | vsock + socat bridge |
 | Agent protocol | [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) |
 | API framework | Express 5 (Node.js) |
-| Client SDKs | TypeScript (zero-dep, native fetch) + Python (httpx) |
+| Client SDKs | TypeScript |
 | Observability | Pino (structured logs) + prom-client (Prometheus metrics) |
 | Testing | Vitest + Supertest |
 
