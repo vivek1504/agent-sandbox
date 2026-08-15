@@ -231,7 +231,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     console.error("Snapshot creation failed:", err);
     try {
       const templateName = process.argv[2] || "node";
-      const fcLogPath = `/var/lib/lambda/jailer/firecracker/snap-${templateName}/root/firecracker.log`;
+      const fcLogPath = `/var/lib/agent-sandbox/jailer/firecracker/snap-${templateName}/root/firecracker.log`;
       if (fs.existsSync(fcLogPath)) {
         console.error("\n=== Firecracker Internal Log ===");
         console.error(fs.readFileSync(fcLogPath, "utf-8"));

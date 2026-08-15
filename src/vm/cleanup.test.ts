@@ -19,7 +19,7 @@ describe("cleanupVm", () => {
 
   it("kills the process and removes sockets", async () => {
     vi.spyOn(fs, "existsSync").mockReturnValue(true);
-    vi.spyOn(fs, "unlinkSync").mockImplementation(() => {});
+    vi.spyOn(fs, "unlinkSync").mockImplementation(() => { });
 
     const vm = makeVm();
     await cleanupVm("session-1", vm);
@@ -39,11 +39,11 @@ describe("cleanupVm", () => {
     const removeSpy = vi.spyOn(fs, "rmSync").mockImplementation(() => undefined);
 
     await cleanupVm("session-1", makeVm({
-      jailDir: "/var/lib/lambda/jailer/firecracker/test",
+      jailDir: "/var/lib/agent-sandbox/jailer/firecracker/test",
     }));
 
     expect(removeSpy).toHaveBeenCalledWith(
-      "/var/lib/lambda/jailer/firecracker/test",
+      "/var/lib/agent-sandbox/jailer/firecracker/test",
       { recursive: true, force: true },
     );
   });

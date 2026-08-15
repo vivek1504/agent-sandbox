@@ -17,9 +17,9 @@ export const JAILER_BIN =
 export const FIRECRACKER_BIN =
   process.env.FIRECRACKER_BIN ?? "/usr/local/bin/firecracker";
 export const JAIL_BASE_DIR =
-  process.env.FIRECRACKER_JAIL_BASE ?? "/var/lib/lambda/jailer";
+  process.env.FIRECRACKER_JAIL_BASE ?? "/var/lib/agent-sandbox/jailer";
 export const ARTIFACTS_DIR =
-  process.env.FIRECRACKER_ARTIFACTS_DIR ?? "/var/lib/lambda/artifacts";
+  process.env.FIRECRACKER_ARTIFACTS_DIR ?? "/var/lib/agent-sandbox/artifacts";
 
 export const FIRECRACKER_UID = parseId(
   process.env.FIRECRACKER_UID ?? "997",
@@ -86,7 +86,7 @@ export function prepareJail(
     fs.chownSync(rootDir, FIRECRACKER_UID, FIRECRACKER_GID);
     fs.chownSync(runDir, FIRECRACKER_UID, FIRECRACKER_GID);
     fs.chownSync(artifactsDir, FIRECRACKER_UID, FIRECRACKER_GID);
-  } catch {}
+  } catch { }
 
   fs.linkSync(template.snapshotPath, path.join(artifactsDir, "snapshot"));
   fs.linkSync(template.memoryPath, path.join(artifactsDir, "memory"));
@@ -201,7 +201,7 @@ export function prepareSnapshotCreationJail(
     fs.chownSync(rootDir, FIRECRACKER_UID, FIRECRACKER_GID);
     fs.chownSync(runDir, FIRECRACKER_UID, FIRECRACKER_GID);
     fs.chownSync(artifactsDir, FIRECRACKER_UID, FIRECRACKER_GID);
-  } catch {}
+  } catch { }
 
   fs.linkSync(
     path.join(ARTIFACTS_DIR, "vmlinux"),

@@ -40,7 +40,7 @@ describe("manifest", () => {
       createdAt: 1000,
       slot: 5,
       nsName: "ns-vm1",
-      jailDir: "/var/lib/lambda/jailer/firecracker/vm1",
+      jailDir: "/var/lib/agent-sandbox/jailer/firecracker/vm1",
     };
 
     addEntry(entry);
