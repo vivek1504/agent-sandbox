@@ -55,7 +55,7 @@ describe("MCP Routes", () => {
     it("rejects requests without Authorization header with 401", async () => {
       const res = await supertest(app).get("/mcp/");
       expect(res.status).toBe(401);
-      expect(res.body.error).toBe("Unauthorized");
+      expect(res.body.error).toBe("API key required");
     });
 
     it("rejects requests with wrong Bearer token with 401", async () => {
@@ -63,7 +63,7 @@ describe("MCP Routes", () => {
         .get("/mcp/")
         .set("Authorization", "Bearer wrong-token");
       expect(res.status).toBe(401);
-      expect(res.body.error).toBe("Unauthorized");
+      expect(res.body.error).toBe("Invalid API key");
     });
 
     it("rejects requests with malformed authorization header", async () => {
