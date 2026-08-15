@@ -1,22 +1,22 @@
 # Agent Sandbox
 
-> An isolated execution environment for AI agents — powered by Firecracker microVMs.
+> An isolated execution environment for AI agents made with Firecracker microVMs.
 
-Give any AI agent its own ephemeral Linux machine. Execute code, install packages, manipulate files, run processes, and access the internet — all inside a hardware-isolated microVM that boots in milliseconds and vanishes when the session ends.
+Give any AI agent its own Linux machine. Execute code, install packages, manipulate files, run processes, and access the internet, all inside a isolated microVM that boots in milliseconds and destroyed when the session ends.
 
 ---
 
 ## Why This Exists
 
-AI agents need to *do things*: write code and run it, install libraries, curl endpoints, spawn background processes, read and write files. But running agent-generated code on your host machine is a non-starter — it's unpredictable, potentially destructive, and impossible to sandbox with containers alone.
+AI agents need to *do things*: write code and run it, install libraries, curl endpoints, spawn background processes, read and write files. But running agent generated code on your host machine is unpredictable, potentially destructive, and impossible to sandbox with containers alone(shared kernel problem).
 
 **Agent Sandbox** solves this by giving each agent session a dedicated Firecracker microVM:
 
-- **Hardware-level isolation** — each session runs in its own Linux kernel. A misbehaving agent cannot escape to the host or affect other sessions.
-- **Millisecond startup** — pre-snapshotted VM state restores in 1–5ms, so agents don't wait for environments to spin up.
-- **Full Linux environment** — agents get a real filesystem, process table, and network stack. If it runs on Linux, it runs here.
-- **Pre-built & Custom Templates** — provision sessions with pre-baked Node.js, Python, Go, or custom Dockerfile environments.
-- **Ephemeral by design** — sessions are stateless, time-bounded, and automatically reaped. No cleanup, no drift.
+- **Hardware level isolation** - each session runs in its own Linux kernel. A misbehaving agent cannot escape to the host or affect other sessions.
+- **Millisecond startup** - pre-snapshotted VM state restores in 1–5ms, so agents don't wait for environments to spin up.
+- **Full Linux environment** - agents get a real filesystem, process table, and network stack.
+- **Pre-built & Custom Templates** - provision sessions with pre-baked Node.js, Python, Go, or custom Dockerfile environments.
+- **Ephemeral by design** - sessions are stateless, time-bounded, and automatically reaped.
 
 ---
 
@@ -64,9 +64,9 @@ AI agents need to *do things*: write code and run it, install libraries, curl en
 
 ### How It Works
 
-1. **Session request arrives** via the REST API or MCP protocol, specifying an optional `template` (e.g. `node`, `python`, `go`).
-2. The **Session Gateway** looks up the pre-built snapshot artifacts from the **Template Registry** and lazily creates a VM — restoring a pre-snapshotted Firecracker instance in ~1–5ms.
-3. Each VM is placed inside its own **Linux network namespace** with a dedicated veth pair, TAP device, and NAT rules — giving the guest full outbound internet access while remaining isolated from other VMs.
+1. **Session request arrives** via the REST API, MCP protocol or client SDK, specifying an optional `template` (e.g. `node`, `python`, `go`).
+2. The **Session Gateway** looks up the pre-built snapshot artifacts from the **Template Registry** and lazily creates a VM by restoring a snapshotted Firecracker instance in about ~1–5ms.
+3. Each VM is placed inside its own **Linux network namespace** with a dedicated veth pair, TAP device, and NAT rules - giving the guest full outbound internet access while remaining isolated from other VMs.
 4. Commands are sent to the guest **runtime** over a **vsock** channel. The runtime executes processes, manipulates the filesystem, and streams results back.
 5. When a session is idle for 30 minutes (configurable), the **session reaper** tears down the VM, jail directory, and network namespace.
 
@@ -79,9 +79,9 @@ Each agent session provides:
 | Capability | Details |
 |---|---|
 | **Multiple Environments** | Pre-built templates for Node.js, Python, Go, and custom Dockerfiles. |
-| **Execute commands** | Run any binary — `node`, `python3`, `go`, `sh`, `curl`, etc. Stdout/stderr streamed in real-time. |
+| **Execute commands** | Run any binary - `node`, `python3`, `go`, `sh`, `curl`, etc. Stdout/stderr streamed in real-time. |
 | **Filesystem access** | Read, write, and list files within an isolated `/workspace` (tmpfs). |
-| **Install packages** | Full network access — `npm install`, `pip install`, `go get` all work. |
+| **Install packages** | Full network access - `npm install`, `pip install`, `go get` all work. |
 | **Process management** | Per-command timeouts, cancellation via `SIGTERM`/`SIGKILL`, exit code tracking. |
 | **Network access** | Each VM has its own network stack with DNS, outbound HTTP/HTTPS, and NAT. |
 | **Session persistence** | Workspace state persists across commands within a session. |
@@ -138,17 +138,51 @@ The build script will:
 1. Build the Docker rootfs.
 2. Extract the filesystem image into an ext4 rootfs.
 3. Provision a Firecracker jail and boot the guest VM until `READY`.
-4. Create the Firecracker snapshot state and write `template.json` metadata to `/var/lib/lambda/artifacts/templates/<name>/`.
+4. Create the Firecracker snapshot state and write `template.json` metadata to `/var/lib/agent-sandbox/artifacts/templates/<name>/`.
 
 ---
 
 ## Interfaces
 
-Agent Sandbox exposes two interfaces — pick whichever fits your integration:
+Agent Sandbox provides three integration layers - SDKs, REST API and MCP server.
+
+### Client SDKs
+
+Install a typed client library and start running code in two lines.
+
+#### TypeScript / JavaScript
+
+```bash
+npm install @agent-sandbox/sdk
+```
+
+```ts
+import { Sandbox } from "@agent-sandbox/sdk";
+
+const sandbox = new Sandbox();
+const session = sandbox.create({ template: "python" });
+
+const result = await session.runCode("print(2 + 2)");
+console.log(result.output[0].data);  // "4\n"
+
+// Stream output in real-time
+for await (const chunk of session.execStream("npm", { args: ["test"] })) {
+  if (chunk.type === "stream") process.stdout.write(chunk.data!);
+}
+
+// Write + read files
+await session.writeFile("data.json", JSON.stringify({ key: "value" }));
+const { content } = await session.readFile("data.json");
+
+await session.destroy();
+```
+
+Uses native `fetch` (Node 18+, Deno, Bun).
+See [`sdk/typescript/README.md`](sdk/typescript/README.md) for the full API reference.
 
 ### REST API
 
-Session-scoped HTTP endpoints for direct integration:
+HTTP endpoints for direct integration:
 
 ```bash
 # List available environment templates
@@ -179,7 +213,7 @@ curl http://localhost:3000/exec/
 
 ### MCP (Model Context Protocol)
 
-A first-class MCP server — connect any MCP-compatible AI agent (Claude, GPT, custom agents) directly:
+An MCP server to connect any MCP-compatible AI agent (Claude, GPT, custom agents) directly:
 
 | Tool | Description |
 |---|---|
@@ -192,8 +226,8 @@ A first-class MCP server — connect any MCP-compatible AI agent (Claude, GPT, c
 | `reset_session` | Destroy a session and release resources |
 
 **Transports supported:**
-- **SSE** — connect over HTTP with Bearer token auth (`/mcp` endpoint)
-- **stdio** — run as a local MCP server via `npm run mcp`
+- **SSE** - connect over HTTP with Bearer token auth (`/mcp` endpoint)
+- **stdio** - run as a local MCP server via `npm run mcp`
 
 ```json
 {
@@ -217,7 +251,7 @@ Every session gets defense-in-depth isolation:
 | **Compute** | Dedicated Firecracker microVM with its own Linux kernel |
 | **Filesystem** | Read-only rootfs + ephemeral tmpfs workspace |
 | **Network** | Per-VM Linux network namespace (veth + TAP + NAT) |
-| **Process** | Firecracker Jailer — chroot, UID/GID separation, `seccomp` |
+| **Process** | Firecracker Jailer - chroot, UID/GID separation, `seccomp` |
 | **Resources** | Configurable vCPU, memory, and file descriptor limits |
 | **Lifecycle** | Automatic reaping of idle sessions (default: 30 min TTL) |
 | **Security** | Path traversal prevention on all file operations |
@@ -280,8 +314,8 @@ echo "net.ipv4.ip_forward = 1" | sudo tee /etc/sysctl.d/99-ip-forward.conf
 ### Install
 
 ```bash
-git clone https://github.com/vivek1504/lambda.git
-cd lambda
+git clone https://github.com/vivek1504/agent-sandbox.git
+cd agent-sandbox
 npm install
 ```
 
@@ -290,11 +324,11 @@ npm install
 Download the guest kernel image:
 
 ```bash
-sudo mkdir -p /var/lib/lambda/artifacts
-wget https://github.com/vivek1504/lambda/releases/download/Beta/vmlinux
-sudo mv vmlinux /var/lib/lambda/artifacts/
-sudo chown -R root:firecracker /var/lib/lambda/artifacts
-sudo chmod 750 /var/lib/lambda/artifacts
+sudo mkdir -p /var/lib/agent-sandbox/artifacts
+wget https://github.com/vivek1504/agent-sandbox/releases/download/Beta/vmlinux
+sudo mv vmlinux /var/lib/agent-sandbox/artifacts/
+sudo chown -R root:firecracker /var/lib/agent-sandbox/artifacts
+sudo chmod 750 /var/lib/agent-sandbox/artifacts
 ```
 
 ### Build Template Snapshots
@@ -349,8 +383,8 @@ All configuration is via environment variables:
 | `MCP_AUTH_TOKEN` | *(Required)* | Bearer token for MCP SSE endpoint |
 | `FIRECRACKER_BIN` | `/usr/local/bin/firecracker` | Path to Firecracker binary |
 | `FIRECRACKER_JAILER_BIN` | `/usr/local/bin/jailer` | Path to Jailer binary |
-| `FIRECRACKER_JAIL_BASE` | `/var/lib/lambda/jailer` | Base directory for Jailer chroots |
-| `FIRECRACKER_ARTIFACTS_DIR` | `/var/lib/lambda/artifacts` | Snapshot, memory, kernel, and template storage |
+| `FIRECRACKER_JAIL_BASE` | `/var/lib/agent-sandbox/jailer` | Base directory for Jailer chroots |
+| `FIRECRACKER_ARTIFACTS_DIR` | `/var/lib/agent-sandbox/artifacts` | Snapshot, memory, kernel, and template storage |
 | `FIRECRACKER_UID` | `997` | UID for the Firecracker process |
 | `FIRECRACKER_GID` | `982` | GID for the Firecracker process |
 | `VM_VCPU_COUNT` | `1` | Number of guest vCPUs configured for the VM |
@@ -390,8 +424,8 @@ Built-in Prometheus metrics at `/metrics`:
 
 Additional endpoints:
 
-- `GET /health` — basic liveness check
-- `GET /ready` — readiness probe (memory threshold)
+- `GET /health` - basic liveness check
+- `GET /ready` - readiness probe (memory threshold)
 
 ---
 
@@ -416,8 +450,8 @@ Tests cover the session gateway, VM protocol, jailer path handling, cleanup life
 
 ```
 src/
-├── server.ts                # Entrypoint — HTTP server + host network setup
-├── app.ts                   # Express app — routes, middleware, metrics
+├── server.ts                # Entrypoint - HTTP server + host network setup
+├── app.ts                   # Express app - routes, middleware, metrics
 ├── logger.ts                # Structured logging (Pino) with redaction
 ├── metrics.ts               # Prometheus metrics definitions
 ├── create_snapshot.ts       # One-shot script to create VM template snapshots
@@ -425,9 +459,9 @@ src/
 │   ├── session.ts           # Session state machine + reaper
 │   └── gateway.ts           # Lazy VM creation + message dispatch
 ├── vm/
-│   ├── vm-manager.ts        # VM lifecycle — create, restore, teardown
-│   ├── jailer.ts            # Jailer integration — chroot, hardlinks, paths
-│   ├── templates.ts         # Template registry — discovery, validation & metadata
+│   ├── vm-manager.ts        # VM lifecycle - create, restore, teardown
+│   ├── jailer.ts            # Jailer integration - chroot, hardlinks, paths
+│   ├── templates.ts         # Template registry - discovery, validation & metadata
 │   ├── networking.ts        # Per-VM network namespace & egress controls
 │   ├── egress-policy.ts     # Config parser for DNS, IP/Port & TC egress policies
 │   ├── egress-policy.test.ts # Unit tests for egress policies
@@ -452,8 +486,19 @@ templates/
 └── go/
     └── Dockerfile           # Go 1.23 environment template
 
+sdk/
+├── typescript/              # @agent-sandbox/sdk - TypeScript/JS client (zero deps)
+    ├── src/
+    │   ├── index.ts         # Barrel export
+    │   ├── client.ts        # Sandbox client - session factory + admin
+    │   ├── session.ts       # Session handle - exec, runCode, filesystem
+    │   └── types.ts         # All type definitions
+    ├── package.json
+    └── README.md
+
+
 minimal-rootfs/
-├── start.sh                 # Guest init — networking, runtime, socat bridge
+├── start.sh                 # Guest init - networking, runtime, socat bridge
 └── runtime/
     └── runtime.js           # Guest-side agent runtime (execute, fs, cancel)
 ```
@@ -470,6 +515,7 @@ minimal-rootfs/
 | Host ↔ VM IPC | vsock + socat bridge |
 | Agent protocol | [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) |
 | API framework | Express 5 (Node.js) |
+| Client SDKs | TypeScript (zero-dep, native fetch) + Python (httpx) |
 | Observability | Pino (structured logs) + prom-client (Prometheus metrics) |
 | Testing | Vitest + Supertest |
 
@@ -478,13 +524,14 @@ minimal-rootfs/
 ## Roadmap
 
 - [x] Pre-built environment snapshots (Node.js, Python, Go, Custom Dockerfiles)
-- [ ] Per-session resource limits (CPU, memory, disk, network bandwidth)
+- [x] Typed client SDKs (TypeScript)
+- [x] Per-session resource limits (CPU, memory, disk, network bandwidth)
 - [ ] Persistent workspace volumes across sessions
 - [ ] Multi-host execution with session routing
-- [ ] WebSocket streaming for real-time output
+- [x] streaming for real-time output
 
 ---
 
 ## Author
 
-**Vivek Jadhav** — [github.com/vivek1504](https://github.com/vivek1504)
+**Vivek Jadhav** - [github.com/vivek1504](https://github.com/vivek1504)
