@@ -135,5 +135,16 @@ export const vmSlotCapacity = new Gauge({
   registers: [register],
 });
 
+export const authRequestsTotal = new Counter({
+  name: "auth_requests_total",
+  help: "Authentication attempts by result",
+  labelNames: ["result"],
+  registers: [register],
+});
 
-
+export const authRateLimitHits = new Counter({
+  name: "auth_rate_limit_hits_total",
+  help: "Rate limit rejections by key",
+  labelNames: ["key_id"],
+  registers: [register],
+});
