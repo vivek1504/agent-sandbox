@@ -5,6 +5,9 @@ import { httpLoggerOptions } from "./logger.js";
 import { register, httpRequestDuration, httpRequestsTotal } from "./metrics.js";
 import { execRouter } from "./routes/exec.js";
 import { mcpRouter } from "./mcp/routes.js";
+import { adminRouter } from "./routes/admin.js";
+import { authMiddleware } from "./auth/middleware.js";
+import { requireOwnership } from "./auth/ownership.js";
 import { startSessionReaper } from "./session/session.js";
 
 export const app = express();
@@ -34,11 +37,13 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use('/mcp', mcpRouter);
 app.use(express.json());
-app.use("/exec", execRouter)
 
-app.get("/metrics", async (_req, res) => {
+app.use("/mcp", authMiddleware("exec"), mcpRouter);
+app.use("/exec", authMiddleware("exec"), requireOwnership, execRouter);
+app.use("/admin", authMiddleware("admin"), adminRouter);
+
+app.get("/metrics", authMiddleware("metrics"), async (_req, res) => {
   res.set("Content-Type", register.contentType);
   res.end(await register.metrics());
 });
@@ -57,4 +62,4 @@ app.get("/ready", (_req, res) => {
     .json({ status: healthy ? "ready" : "not_ready", checks });
 });
 
-startSessionReaper()
+startSessionReaper();
