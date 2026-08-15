@@ -1,0 +1,43 @@
+{
+  "name": "@agent-sandbox/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript/JavaScript client SDK for Agent Sandbox to run code in isolated Firecracker microVMs",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "sandbox",
+    "firecracker",
+    "microvm",
+    "code-execution",
+    "ai-agent",
+    "isolation"
+  ],
+  "author": "Vivek Jadhav",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vivek1504/agent-sandbox.git",
+    "directory": "sdk/typescript"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}
