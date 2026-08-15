@@ -34,6 +34,7 @@ execRouter.post("/:sessionId/execute", async (req, res) => {
         },
         60000,
         template,
+        req.apiKey?.id,
       );
 
       res.write(JSON.stringify({ type: "result", ...result.data }) + "\n");
@@ -56,6 +57,7 @@ execRouter.post("/:sessionId/execute", async (req, res) => {
       },
       60000,
       template,
+      req.apiKey?.id,
     );
 
     res.json({
@@ -78,9 +80,14 @@ execRouter.post("/:sessionId/write", async (req, res) => {
 
   try {
     const contentBase64 = Buffer.from(content, "utf8").toString("base64");
-    const result = await sendSessionMessage(sessionId, {
-      type: "write_file", path, content: contentBase64, mode,
-    });
+    const result = await sendSessionMessage(
+      sessionId,
+      { type: "write_file", path, content: contentBase64, mode },
+      undefined,
+      60000,
+      undefined,
+      req.apiKey?.id,
+    );
     res.json(result.data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -94,10 +101,15 @@ execRouter.get("/:sessionId/read", async (req, res) => {
   if (!path) return res.status(400).json({ error: "path query param required" });
 
   try {
-    const result = await sendSessionMessage(sessionId, {
-      type: "read_file", path,
-    });
-    const data = result.data
+    const result = await sendSessionMessage(
+      sessionId,
+      { type: "read_file", path },
+      undefined,
+      60000,
+      undefined,
+      req.apiKey?.id,
+    );
+    const data = result.data;
     res.json({
       ...data,
       content: Buffer.from(data.content, "base64").toString("utf8"),
@@ -112,9 +124,14 @@ execRouter.get("/:sessionId/files", async (req, res) => {
   const { path, recursive } = req.query;
 
   try {
-    const result = await sendSessionMessage(sessionId, {
-      type: "list_files", path, recursive: recursive === "true",
-    });
+    const result = await sendSessionMessage(
+      sessionId,
+      { type: "list_files", path, recursive: recursive === "true" },
+      undefined,
+      60000,
+      undefined,
+      req.apiKey?.id,
+    );
     res.json(result.data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -127,6 +144,10 @@ execRouter.delete("/:sessionId", async (req, res) => {
   res.json({ destroyed });
 });
 
-execRouter.get("/", (_req, res) => {
-  res.json({ sessions: getAllSessions() });
+execRouter.get("/", (req, res) => {
+  let sessions = getAllSessions();
+  if (req.apiKey && !req.apiKey.scopes.includes("admin")) {
+    sessions = sessions.filter((s) => !s.ownerId || s.ownerId === req.apiKey?.id);
+  }
+  res.json({ sessions });
 });

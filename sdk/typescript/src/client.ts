@@ -19,7 +19,10 @@ export class Sandbox {
     this._baseUrl = raw.replace(/\/+$/, "");
     this._defaultTemplate = opts.defaultTemplate ?? "node";
     this._defaultTimeout = opts.defaultTimeout ?? 30_000;
-    this._headers = opts.headers ?? {};
+    this._headers = { ...opts.headers };
+    if (opts.apiKey) {
+      this._headers["Authorization"] = `Bearer ${opts.apiKey}`;
+    }
     this._fetch = globalThis.fetch.bind(globalThis);
   }
 

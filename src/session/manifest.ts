@@ -4,6 +4,7 @@ import { logger } from "../logger.js";
 
 export interface ManifestEntry {
   sessionId: string;
+  ownerId?: string | undefined;
   vmId: string;
   createdAt: number;
   slot: number;

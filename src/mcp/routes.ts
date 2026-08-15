@@ -4,23 +4,6 @@ import { createMcpServer } from "./server.js";
 
 export const mcpRouter = Router();
 
-mcpRouter.use((req, res, next) => {
-  const authToken = process.env.MCP_AUTH_TOKEN;
-
-  if (!authToken) {
-    res.status(503).json({ error: "MCP_AUTH_TOKEN not configured" });
-    return;
-  }
-
-  const authHeader = req.headers.authorization;
-  if (!authHeader || authHeader !== `Bearer ${authToken}`) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
-  next();
-});
-
 const transports = new Map<string, SSEServerTransport>();
 
 mcpRouter.get("/", async (req, res) => {

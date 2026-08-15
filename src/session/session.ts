@@ -9,6 +9,7 @@ import { removeEntry } from "./manifest.js";
 
 export interface Session {
   sessionId: string;
+  ownerId?: string | undefined;
   createdAt: number;
   lastActivityAt: number;
   state: "creating" | "active" | "destroying";
@@ -23,9 +24,10 @@ export function getSession(sessionId: string): Session | undefined {
   return sessions.get(sessionId);
 }
 
-export function createSession(sessionId: string, template?: string): Session {
+export function createSession(sessionId: string, template?: string, ownerId?: string): Session {
   const session: Session = {
     sessionId,
+    ownerId,
     createdAt: Date.now(),
     lastActivityAt: Date.now(),
     state: "creating",

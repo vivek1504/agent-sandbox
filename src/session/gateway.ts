@@ -18,11 +18,12 @@ import { addEntry } from "./manifest.js";
 export async function ensureSession(
   sessionId: string,
   templateName?: string,
+  ownerId?: string,
   resources: VmResourceConfig = loadResourceConfig(),
   egressPolicy: EgressPolicy = loadEgressPolicy(),
 ): Promise<Vm> {
   let session = getSession(sessionId);
-  session = session || createSession(sessionId, templateName);
+  session = session || createSession(sessionId, templateName, ownerId);
   if (session.vm) return session.vm;
   if (session.creation) return session.creation;
 
@@ -38,6 +39,7 @@ export async function ensureSession(
       if (vm.networkInfo && vm.jailDir) {
         addEntry({
           sessionId,
+          ownerId: session.ownerId,
           vmId: vm.id,
           createdAt: session.createdAt,
           slot: vm.networkInfo.slot,
@@ -61,8 +63,9 @@ export async function sendSessionMessage(
   onStream?: (chunk: any) => void,
   timeout: number = 60000,
   templateName?: string,
+  ownerId?: string,
 ): Promise<any> {
-  const vm = await ensureSession(sessionId, templateName);
+  const vm = await ensureSession(sessionId, templateName, ownerId);
   touchSession(sessionId);
 
   const id = message.id || crypto.randomUUID();
