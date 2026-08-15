@@ -2,7 +2,7 @@
 set -euo pipefail
 
 TEMPLATE=${1:-node}
-ARTIFACTS_DIR=${FIRECRACKER_ARTIFACTS_DIR:-/var/lib/lambda/artifacts}
+ARTIFACTS_DIR=${FIRECRACKER_ARTIFACTS_DIR:-/var/lib/agent-sandbox/artifacts}
 TEMPLATE_DIR="${ARTIFACTS_DIR}/templates/${TEMPLATE}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -57,7 +57,7 @@ rm "${ROOTFS_PATH}"
 
 cd "${PROJECT_ROOT}"
 npx tsc -b
-sudo rm -rf "/var/lib/lambda/jailer/firecracker/snap-${TEMPLATE}"
+sudo rm -rf "/var/lib/agent-sandbox/jailer/firecracker/snap-${TEMPLATE}"
 sudo node dist/create_snapshot.js "${TEMPLATE}" "${TEMPLATE_DIR}/rootfs.ext4"
 
 echo "=== Template '${TEMPLATE}' ready at ${TEMPLATE_DIR} ==="
