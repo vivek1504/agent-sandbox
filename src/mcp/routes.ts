@@ -8,11 +8,12 @@ const transports = new Map<string, SSEServerTransport>();
 
 mcpRouter.get("/", async (req, res) => {
   const mcpSessionId = req.id as string;
+  const ownerId = req.apiKey?.id;
 
   const transport = new SSEServerTransport(`/mcp/messages?mcpSessionId=${mcpSessionId}`, res);
   transports.set(mcpSessionId, transport);
 
-  const server = createMcpServer();
+  const server = createMcpServer(ownerId);
   await server.connect(transport);
 
   req.on("close", () => {
@@ -32,3 +33,4 @@ mcpRouter.post("/messages", async (req, res) => {
 
   await transport.handlePostMessage(req, res);
 });
+

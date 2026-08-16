@@ -134,6 +134,7 @@ describe("MCP Server Tools", () => {
         expect.any(Function),
         60000,
         undefined,
+        undefined,
       );
 
       const text = textOf(result);
@@ -194,6 +195,7 @@ describe("MCP Server Tools", () => {
         expect.objectContaining({ cwd: "subdir", timeout: 5000 }),
         expect.any(Function),
         60000,
+        undefined,
         undefined,
       );
     });
@@ -309,6 +311,10 @@ describe("MCP Server Tools", () => {
           type: "read_file",
           path: "deep/nested/file.js",
         }),
+        undefined,
+        60000,
+        undefined,
+        undefined,
       );
     });
   });
@@ -367,6 +373,10 @@ describe("MCP Server Tools", () => {
           path: "src",
           recursive: true,
         }),
+        undefined,
+        60000,
+        undefined,
+        undefined,
       );
     });
   });
