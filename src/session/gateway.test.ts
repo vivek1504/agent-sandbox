@@ -17,6 +17,7 @@ vi.mock("../vm/transport.js", () => ({
   connectVsock: vi.fn(),
   sendMessage: vi.fn(),
   sendRequest: vi.fn(),
+  acquireVmLock: vi.fn(async () => vi.fn()),
 }));
 
 vi.mock("../vm/protocol.js", () => ({

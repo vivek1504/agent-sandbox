@@ -5,7 +5,8 @@ import { vsockErrors } from "../metrics.js";
 export function readVsockResponse(
   socket: Socket,
   timeout: number,
-  onStreamChunk?: (chunk: any) => void
+  onStreamChunk?: (chunk: any) => void,
+  expectedId?: string,
 ): Promise<{ type: string; data: any; error?: string }> {
   return new Promise((resolve, reject) => {
     let buffer = "";
@@ -51,11 +52,21 @@ export function readVsockResponse(
           const msg = JSON.parse(line);
 
           if (msg.type === "stream") {
-            onStreamChunk?.(msg);
+            if (!expectedId || msg.id === expectedId) {
+              onStreamChunk?.(msg);
+            }
             continue;
           }
 
           if (msg.type === "response" || msg.type === "error") {
+            if (expectedId && msg.id !== expectedId) {
+              vmLogger.warn(
+                { expectedId, receivedId: msg.id },
+                "received response for unexpected message id, discarding",
+              );
+              continue;
+            }
+
             clearTimeout(timer);
             cleanup();
             if (msg.type === "error") {
@@ -95,3 +106,4 @@ export function readVsockResponse(
     socket.on("end", onEnd);
   });
 }
+

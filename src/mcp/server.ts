@@ -4,7 +4,7 @@ import { sendSessionMessage } from "../session/gateway.js";
 import { destroySession } from "../session/session.js";
 import { listTemplates } from "../vm/templates.js";
 
-export function createMcpServer(): McpServer {
+export function createMcpServer(ownerId?: string): McpServer {
   const server = new McpServer({
     name: "firecracker-sandbox",
     version: "1.0.0",
@@ -71,6 +71,7 @@ export function createMcpServer(): McpServer {
         },
         60000,
         template,
+        ownerId,
       );
 
       const exitCode = result.data?.exitCode ?? -1;
@@ -112,11 +113,14 @@ export function createMcpServer(): McpServer {
     },
     async ({ sessionId, path, content }) => {
       const encoded = Buffer.from(content).toString("base64");
-      const result = await sendSessionMessage(sessionId, {
-        type: "write_file",
-        path,
-        content: encoded,
-      });
+      const result = await sendSessionMessage(
+        sessionId,
+        { type: "write_file", path, content: encoded },
+        undefined,
+        60000,
+        undefined,
+        ownerId,
+      );
       return {
         content: [
           {
@@ -136,10 +140,14 @@ export function createMcpServer(): McpServer {
       path: z.string().describe("File path relative to /workspace"),
     },
     async ({ sessionId, path }) => {
-      const result = await sendSessionMessage(sessionId, {
-        type: "read_file",
-        path,
-      });
+      const result = await sendSessionMessage(
+        sessionId,
+        { type: "read_file", path },
+        undefined,
+        60000,
+        undefined,
+        ownerId,
+      );
       const content = Buffer.from(
         result.data?.content || "",
         "base64",
@@ -162,11 +170,14 @@ export function createMcpServer(): McpServer {
       recursive: z.boolean().optional().describe("List recursively"),
     },
     async ({ sessionId, path, recursive }) => {
-      const result = await sendSessionMessage(sessionId, {
-        type: "list_files",
-        path,
-        recursive,
-      });
+      const result = await sendSessionMessage(
+        sessionId,
+        { type: "list_files", path, recursive },
+        undefined,
+        60000,
+        undefined,
+        ownerId,
+      );
       const listing = (result.data?.files || [])
         .map(
           (f: any) =>
@@ -212,3 +223,4 @@ export function createMcpServer(): McpServer {
 
   return server;
 }
+
