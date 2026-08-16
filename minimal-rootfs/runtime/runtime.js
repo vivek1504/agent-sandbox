@@ -4,7 +4,12 @@ const fs = require("fs");
 const path = require("path");
 
 const WORKSPACE = "/workspace";
+const WORKSPACE_PREFIX = WORKSPACE + path.sep;
 const activeProcesses = new Map();
+
+function isInsideWorkspace(absPath) {
+  return absPath === WORKSPACE || absPath.startsWith(WORKSPACE_PREFIX);
+}
 
 const handlers = {
   execute: handleExecute,
@@ -63,7 +68,7 @@ function handleExecute(socket, msg) {
 
   const workDir = path.resolve(WORKSPACE, cwd);
 
-  if (!workDir.startsWith(WORKSPACE)) {
+  if (!isInsideWorkspace(workDir)) {
     return sendError(socket, id, "Path traversal detected", -1);
   }
 
@@ -133,7 +138,7 @@ function handleWriteFile(socket, msg) {
   const { id, path: filePath, content } = msg;
 
   const absPath = path.resolve(WORKSPACE, filePath);
-  if (!absPath.startsWith(WORKSPACE)) {
+  if (!isInsideWorkspace(absPath)) {
     return sendError(socket, id, "Path traversal detected", -1);
   }
 
@@ -160,7 +165,7 @@ function handleReadFile(socket, msg) {
   const { id, path: filePath } = msg;
 
   const absPath = path.resolve(WORKSPACE, filePath);
-  if (!absPath.startsWith(WORKSPACE)) {
+  if (!isInsideWorkspace(absPath)) {
     return sendError(socket, id, "Path traversal detected", -1);
   }
 
@@ -186,7 +191,7 @@ function handleListFiles(socket, msg) {
   const { id, path: dirPath = ".", recursive = false } = msg;
 
   const absPath = path.resolve(WORKSPACE, dirPath);
-  if (!absPath.startsWith(WORKSPACE)) {
+  if (!isInsideWorkspace(absPath)) {
     return sendError(socket, id, "Path traversal detected", -1);
   }
 
