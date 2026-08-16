@@ -12,3 +12,4 @@ rootfs.ext4
 node_modules
 vmlinux
 coverage
+.env
