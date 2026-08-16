@@ -54,3 +54,28 @@ export async function getVmSocket(vm: Vm) {
 
   return vm.socket;
 }
+
+/**
+ * Simple async mutex to serialize requests on a single vsock connection.
+ * Prevents concurrent callers from interleaving responses.
+ */
+const vmLocks = new Map<string, Promise<void>>();
+
+export async function acquireVmLock(vmId: string): Promise<() => void> {
+  // Wait for any existing lock to release
+  while (vmLocks.has(vmId)) {
+    await vmLocks.get(vmId);
+  }
+
+  let release: () => void;
+  const lockPromise = new Promise<void>((resolve) => {
+    release = () => {
+      vmLocks.delete(vmId);
+      resolve();
+    };
+  });
+
+  vmLocks.set(vmId, lockPromise);
+  return release!;
+}
+

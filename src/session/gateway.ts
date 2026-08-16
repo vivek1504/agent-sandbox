@@ -1,5 +1,5 @@
 import { readVsockResponse } from "../vm/protocol.js";
-import { getVmSocket } from "../vm/transport.js";
+import { getVmSocket, acquireVmLock } from "../vm/transport.js";
 import { cleanupVm } from "../vm/cleanup.js";
 import { getSession, createSession, touchSession } from "./session.js";
 import { sessionLogger } from "../logger.js";
@@ -71,38 +71,46 @@ export async function sendSessionMessage(
   const id = message.id || crypto.randomUUID();
   const fullMessage = { ...message, id };
 
-  const socket = await getVmSocket(vm);
-  socket.write(JSON.stringify(fullMessage) + "\n");
-
-  sessionLogger.debug(
-    { sessionId, messageType: message.type, messageId: id },
-    "message sent to VM",
-  );
-
-  const startTime = process.hrtime.bigint();
-  let status = "success";
-  let result;
+  // Acquire per-VM lock to serialize requests on the shared socket
+  const releaseLock = await acquireVmLock(vm.id);
 
   try {
-    result = await readVsockResponse(socket, timeout, onStream);
+    const socket = await getVmSocket(vm);
+    socket.write(JSON.stringify(fullMessage) + "\n");
 
-    if (message.type === "execute" && result.data?.exitCode !== undefined) {
-      execProcessExitCode.inc({
-        command: message.command,
-        exit_code: result.data.exitCode.toString(),
-      });
-    } else if (message.type === "write_file" && result.data?.bytesWritten) {
-      execWorkspaceBytesWritten.inc(result.data.bytesWritten);
+    sessionLogger.debug(
+      { sessionId, messageType: message.type, messageId: id },
+      "message sent to VM",
+    );
+
+    const startTime = process.hrtime.bigint();
+    let status = "success";
+    let result;
+
+    try {
+      result = await readVsockResponse(socket, timeout, onStream, id);
+
+      if (message.type === "execute" && result.data?.exitCode !== undefined) {
+        execProcessExitCode.inc({
+          command: message.command,
+          exit_code: result.data.exitCode.toString(),
+        });
+      } else if (message.type === "write_file" && result.data?.bytesWritten) {
+        execWorkspaceBytesWritten.inc(result.data.bytesWritten);
+      }
+
+      return { ...result, messageId: id };
+    } catch (err) {
+      status = "error";
+      throw err;
+    } finally {
+      const duration =
+        Number(process.hrtime.bigint() - startTime) / 1_000_000_000;
+      execMessageDurationSeconds.observe({ type: message.type }, duration);
+      execMessageTotal.inc({ type: message.type, status });
     }
-
-    return { ...result, messageId: id };
-  } catch (err) {
-    status = "error";
-    throw err;
   } finally {
-    const duration =
-      Number(process.hrtime.bigint() - startTime) / 1_000_000_000;
-    execMessageDurationSeconds.observe({ type: message.type }, duration);
-    execMessageTotal.inc({ type: message.type, status });
+    releaseLock();
   }
 }
+
