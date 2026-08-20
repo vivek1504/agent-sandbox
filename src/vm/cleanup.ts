@@ -43,7 +43,7 @@ export async function cleanupVm(sessionId: string, vm: Vm) {
 
   try {
     if (vm.networkInfo) {
-      teardownVmNetwork(vm.networkInfo);
+      await teardownVmNetwork(vm.networkInfo);
       vmLogger.debug({ nsName: vm.networkInfo.nsName }, "network namespace removed");
     }
   } catch (err) {

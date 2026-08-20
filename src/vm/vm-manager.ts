@@ -72,7 +72,7 @@ export async function createVm(
   vmCount.inc({ function_id: sessionId, state: "creating" });
 
   try {
-    networkInfo = setupVmNetwork(instanceId, egressPolicy);
+    networkInfo = await setupVmNetwork(instanceId, egressPolicy);
 
     jail = prepareJail(instanceId, template);
     fc = spawn(JAILER_BIN, jailerArgs(instanceId, networkInfo.nsPath, mergedResources));
@@ -133,7 +133,7 @@ export async function createVm(
     }
 
     try {
-      if (networkInfo) teardownVmNetwork(networkInfo);
+      if (networkInfo) await teardownVmNetwork(networkInfo);
     } catch (cleanupErr) {
       vmLogger.warn(
         { instanceId, err: cleanupErr },
