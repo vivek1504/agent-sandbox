@@ -1,4 +1,5 @@
-import { execSync } from "child_process";
+import { execSync, exec as execCb } from "child_process";
+import { promisify } from "util";
 import fs from "fs";
 import path from "path";
 import { vmLogger } from "../logger.js";
@@ -11,6 +12,8 @@ import {
   type BandwidthPolicy,
   loadEgressPolicy,
 } from "./egress-policy.js";
+
+const execAsync = promisify(execCb);
 
 const usedSlots = new Set<number>();
 export const MAX_SLOTS = parseInt(process.env.VM_MAX_SLOTS ?? "254", 10);
@@ -97,37 +100,37 @@ function buildNetworkInfo(vmId: string, slot: number): VmNetworkInfo {
   };
 }
 
-function run(cmd: string, label: string): void {
+async function run(cmd: string, label: string): Promise<void> {
   vmLogger.debug({ cmd }, label);
-  execSync(cmd, { stdio: "pipe" });
+  await execAsync(cmd);
 }
 
-function runInNs(nsName: string, cmd: string, label: string): void {
+async function runInNs(nsName: string, cmd: string, label: string): Promise<void> {
   const fullCmd = `ip netns exec ${nsName} ${cmd}`;
   vmLogger.debug({ cmd: fullCmd }, label);
-  execSync(fullCmd, { stdio: "pipe" });
+  await execAsync(fullCmd);
 }
 
-function setupEgressChain(info: VmNetworkInfo): void {
-  runInNs(
+async function setupEgressChain(info: VmNetworkInfo): Promise<void> {
+  await runInNs(
     info.nsName,
     `iptables -t nat -A POSTROUTING -s 192.168.241.0/29 -o ${info.vethNs} -j MASQUERADE`,
     "namespace NAT masquerade",
   );
 
-  runInNs(
+  await runInNs(
     info.nsName,
     `iptables -A FORWARD -i ${info.vethNs} -o tap0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT`,
     "namespace forward veth->tap (established)",
   );
 
-  runInNs(
+  await runInNs(
     info.nsName,
     `iptables -N VM_EGRESS`,
     "create IPv4 VM egress chain",
   );
 
-  runInNs(
+  await runInNs(
     info.nsName,
     `iptables -A FORWARD -i tap0 -o ${info.vethNs} -j VM_EGRESS`,
     "forward tap->veth via IPv4 VM_EGRESS chain",
@@ -135,7 +138,7 @@ function setupEgressChain(info: VmNetworkInfo): void {
 }
 
 
-function setupDnsFiltering(info: VmNetworkInfo, dns: DnsPolicy): void {
+async function setupDnsFiltering(info: VmNetworkInfo, dns: DnsPolicy): Promise<void> {
   if (dns.mode === "none") return;
 
   const confDir = `/tmp/dnsmasq-${info.nsName}`;
@@ -170,22 +173,24 @@ function setupDnsFiltering(info: VmNetworkInfo, dns: DnsPolicy): void {
 
   fs.writeFileSync(confFile, config);
 
-  runInNs(
+  await runInNs(
     info.nsName,
     `dnsmasq --conf-file=${confFile} --pid-file=${pidFile} --log-facility=${logFile}`,
     "start dnsmasq DNS filter",
   );
 
-  runInNs(
-    info.nsName,
-    `iptables -A VM_EGRESS -p udp --dport 53 -j DROP`,
-    "block direct DNS egress (UDP)",
-  );
-  runInNs(
-    info.nsName,
-    `iptables -A VM_EGRESS -p tcp --dport 53 -j DROP`,
-    "block direct DNS egress (TCP)",
-  );
+  await Promise.all([
+    runInNs(
+      info.nsName,
+      `iptables -A VM_EGRESS -p udp --dport 53 -j DROP`,
+      "block direct DNS egress (UDP)",
+    ),
+    runInNs(
+      info.nsName,
+      `iptables -A VM_EGRESS -p tcp --dport 53 -j DROP`,
+      "block direct DNS egress (TCP)",
+    ),
+  ]);
 
   vmLogger.info(
     { nsName: info.nsName, mode: dns.mode, domainCount: dns.domains.length },
@@ -193,7 +198,7 @@ function setupDnsFiltering(info: VmNetworkInfo, dns: DnsPolicy): void {
   );
 }
 
-function teardownDnsFiltering(info: VmNetworkInfo): void {
+async function teardownDnsFiltering(info: VmNetworkInfo): Promise<void> {
   const confDir = `/tmp/dnsmasq-${info.nsName}`;
   const pidFile = path.join(confDir, "dnsmasq.pid");
 
@@ -201,7 +206,7 @@ function teardownDnsFiltering(info: VmNetworkInfo): void {
     if (fs.existsSync(pidFile)) {
       const pid = fs.readFileSync(pidFile, "utf-8").trim();
       if (pid) {
-        runInNs(info.nsName, `kill ${pid}`, "stop dnsmasq");
+        await runInNs(info.nsName, `kill ${pid}`, "stop dnsmasq");
       }
     }
   } catch (err) {
@@ -237,26 +242,26 @@ function buildIptablesRule(
   return cmd;
 }
 
-function setupDestinationFiltering(
+async function setupDestinationFiltering(
   info: VmNetworkInfo,
   dest: DestinationPolicy,
-): void {
+): Promise<void> {
   const metadataBlockRules: DestinationRule[] = [
     { cidr: "169.254.169.254/32", protocol: "all" },
   ];
 
   for (const rule of metadataBlockRules) {
     const cmd = buildIptablesRule(rule, "DROP");
-    runInNs(info.nsName, cmd, "block cloud metadata");
+    await runInNs(info.nsName, cmd, "block cloud metadata");
   }
 
 
   if (dest.mode === "deny") {
     for (const rule of dest.rules) {
       const cmd = buildIptablesRule(rule, "DROP");
-      runInNs(info.nsName, cmd, `deny ${rule.cidr}`);
+      await runInNs(info.nsName, cmd, `deny ${rule.cidr}`);
     }
-    runInNs(
+    await runInNs(
       info.nsName,
       `iptables -A VM_EGRESS -j ACCEPT`,
       "default accept other destinations",
@@ -264,15 +269,15 @@ function setupDestinationFiltering(
   } else if (dest.mode === "allow") {
     for (const rule of dest.rules) {
       const cmd = buildIptablesRule(rule, "ACCEPT");
-      runInNs(info.nsName, cmd, `allow ${rule.cidr}`);
+      await runInNs(info.nsName, cmd, `allow ${rule.cidr}`);
     }
-    runInNs(
+    await runInNs(
       info.nsName,
       `iptables -A VM_EGRESS -j DROP`,
       "default deny all unlisted destinations",
     );
   } else {
-    runInNs(
+    await runInNs(
       info.nsName,
       `iptables -A VM_EGRESS -j ACCEPT`,
       "default accept all destinations",
@@ -285,29 +290,29 @@ function setupDestinationFiltering(
   );
 }
 
-function setupBandwidthThrottling(
+async function setupBandwidthThrottling(
   info: VmNetworkInfo,
   bw: BandwidthPolicy,
-): void {
+): Promise<void> {
   if (!bw.enabled) return;
 
-  runInNs(
+  await runInNs(
     info.nsName,
     `tc qdisc add dev tap0 root handle 1: htb default 10`,
     "add HTB qdisc on tap0",
   );
-  runInNs(
+  await runInNs(
     info.nsName,
     `tc class add dev tap0 parent 1: classid 1:10 htb rate ${bw.egressRateKbit}kbit burst ${bw.burstKbit}kbit`,
     `set egress rate ${bw.egressRateKbit}kbit`,
   );
 
-  runInNs(
+  await runInNs(
     info.nsName,
     `tc qdisc add dev tap0 handle ffff: ingress`,
     "add ingress qdisc on tap0",
   );
-  runInNs(
+  await runInNs(
     info.nsName,
     `tc filter add dev tap0 parent ffff: protocol ip u32 match u32 0 0 police rate ${bw.egressRateKbit}kbit burst ${bw.burstKbit}kbit drop flowid :1`,
     `set ingress police ${bw.egressRateKbit}kbit`,
@@ -319,10 +324,10 @@ function setupBandwidthThrottling(
   );
 }
 
-export function setupVmNetwork(
+export async function setupVmNetwork(
   vmId: string,
   egressPolicy: EgressPolicy = loadEgressPolicy(),
-): VmNetworkInfo {
+): Promise<VmNetworkInfo> {
   const slot = allocateSlot();
   const info = buildNetworkInfo(vmId, slot);
   info.egressPolicy = egressPolicy;
@@ -344,78 +349,80 @@ export function setupVmNetwork(
   );
 
   try {
-    execSync(`ip netns delete ${info.nsName} 2>/dev/null`, { stdio: "pipe" });
-    execSync(`ip link delete ${info.vethHost} 2>/dev/null`, { stdio: "pipe" });
+    await execAsync(`ip netns delete ${info.nsName} 2>/dev/null`).catch(() => {});
+    await execAsync(`ip link delete ${info.vethHost} 2>/dev/null`).catch(() => {});
   } catch {}
 
   try {
-    run(`ip netns add ${info.nsName}`, "create namespace");
+    await run(`ip netns add ${info.nsName}`, "create namespace");
 
-    run(
+    await run(
       `ip link add ${info.vethHost} type veth peer name ${info.vethNs}`,
       "create veth pair",
     );
 
-    run(
+    await run(
       `ip link set ${info.vethNs} netns ${info.nsName}`,
       "move veth to namespace",
     );
-    run(`ip link set ${info.vethHost} up`, "bring up host veth");
-    run(
+    await run(`ip link set ${info.vethHost} up`, "bring up host veth");
+    await run(
       `ip addr add ${info.hostIp}/30 dev ${info.vethHost}`,
       "assign host veth IP",
     );
 
-    runInNs(info.nsName, "ip link set lo up", "bring up loopback");
-    runInNs(
+    await runInNs(info.nsName, "ip link set lo up", "bring up loopback");
+    await runInNs(
       info.nsName,
       `ip link set ${info.vethNs} up`,
       "bring up namespace veth",
     );
-    runInNs(
+    await runInNs(
       info.nsName,
       `ip addr add ${info.nsIp}/30 dev ${info.vethNs}`,
       "assign namespace veth IP",
     );
-    runInNs(
+    await runInNs(
       info.nsName,
       `ip route add default via ${info.hostIp}`,
       "set default route in namespace",
     );
 
-    runInNs(info.nsName, "ip tuntap add tap0 mode tap", "create TAP");
-    runInNs(info.nsName, "ip link set tap0 up", "bring up TAP");
-    runInNs(
+    await runInNs(info.nsName, "ip tuntap add tap0 mode tap", "create TAP");
+    await runInNs(info.nsName, "ip link set tap0 up", "bring up TAP");
+    await runInNs(
       info.nsName,
       `ip addr add ${info.tapIp}/29 dev tap0`,
       "assign TAP IP",
     );
 
-    runInNs(
-      info.nsName,
-      "sysctl -w net.ipv4.ip_forward=1",
-      "enable ip forwarding in namespace",
-    );
-    runInNs(
-      info.nsName,
-      "sysctl -w net.ipv4.conf.tap0.rp_filter=0",
-      "disable rp_filter for tap0",
-    );
-    runInNs(
-      info.nsName,
-      "sysctl -w net.ipv4.conf.all.rp_filter=0",
-      "disable rp_filter for all",
-    );
+    await Promise.all([
+      runInNs(
+        info.nsName,
+        "sysctl -w net.ipv4.ip_forward=1",
+        "enable ip forwarding in namespace",
+      ),
+      runInNs(
+        info.nsName,
+        "sysctl -w net.ipv4.conf.tap0.rp_filter=0",
+        "disable rp_filter for tap0",
+      ),
+      runInNs(
+        info.nsName,
+        "sysctl -w net.ipv4.conf.all.rp_filter=0",
+        "disable rp_filter for all",
+      ),
+    ]);
 
-    setupEgressChain(info);
+    await setupEgressChain(info);
 
     if (egressPolicy.dns.mode !== "none") {
-      setupDnsFiltering(info, egressPolicy.dns);
+      await setupDnsFiltering(info, egressPolicy.dns);
     }
 
-    setupDestinationFiltering(info, egressPolicy.destination);
+    await setupDestinationFiltering(info, egressPolicy.destination);
 
-    setupBandwidthThrottling(info, egressPolicy.bandwidth);
+    await setupBandwidthThrottling(info, egressPolicy.bandwidth);
 
     vmEgressPolicyApplied.inc({
       dns_mode: egressPolicy.dns.mode,
@@ -432,7 +439,7 @@ export function setupVmNetwork(
   } catch (err) {
     vmLogger.error({ vmId, err }, "VM network setup failed, cleaning up");
     try {
-      teardownVmNetwork(info);
+      await teardownVmNetwork(info);
     } catch (cleanupErr) {
       vmLogger.warn({ vmId, cleanupErr }, "cleanup after failed network setup also failed");
     }
@@ -440,26 +447,26 @@ export function setupVmNetwork(
   }
 }
 
-export function teardownVmNetwork(info: VmNetworkInfo): void {
+export async function teardownVmNetwork(info: VmNetworkInfo): Promise<void> {
   vmLogger.info(
     { nsName: info.nsName, slot: info.slot },
     "tearing down VM network namespace",
   );
 
   try {
-    teardownDnsFiltering(info);
+    await teardownDnsFiltering(info);
   } catch (err) {
     vmLogger.warn({ nsName: info.nsName, err }, "failed to cleanup DNS filtering");
   }
 
   try {
-    run(`ip netns delete ${info.nsName}`, "delete namespace");
+    await run(`ip netns delete ${info.nsName}`, "delete namespace");
   } catch (err) {
     vmLogger.warn({ nsName: info.nsName, err }, "failed to delete namespace");
   }
 
   try {
-    run(`ip link delete ${info.vethHost}`, "delete host veth");
+    await run(`ip link delete ${info.vethHost}`, "delete host veth");
   } catch {
   }
 

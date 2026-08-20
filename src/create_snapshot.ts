@@ -140,7 +140,7 @@ async function main() {
   console.log(`Setting up network namespace for template "${templateName}" snapshot creation...`);
   let networkInfo: VmNetworkInfo | undefined;
   try {
-    networkInfo = setupVmNetwork(functionId);
+    networkInfo = await setupVmNetwork(functionId);
   } catch (err) {
     console.error("Failed to set up network namespace:", err);
     console.error("Ensure you have root/CAP_NET_ADMIN privileges.");
@@ -219,7 +219,7 @@ async function main() {
   if (networkInfo) {
     console.log("Cleaning up snapshot network namespace...");
     try {
-      teardownVmNetwork(networkInfo);
+      await teardownVmNetwork(networkInfo);
     } catch (err) {
       console.warn("Warning: failed to clean up network namespace:", err);
     }
