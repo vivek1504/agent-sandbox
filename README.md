@@ -494,6 +494,91 @@ Tests cover the session gateway, VM protocol, jailer path handling, cleanup life
 
 ---
 
+## Performance & Benchmark Suite
+
+Agent Sandbox includes an automated, microsecond-accurate benchmark harness (`npm run bench`) that profiles end-to-end microVM execution across 4 dedicated subsystems:
+
+```bash
+# Run all benchmark suites with standard defaults (10 iterations, concurrency [1, 5, 10])
+sudo npm run bench
+
+# Run specific suite with custom iterations or concurrency tiers
+sudo npm run bench -- -s vm -i 20
+sudo npm run bench -- -s gateway -c 1,5,10,20
+```
+
+### Benchmark Environment
+* **OS**: Ubuntu 24.04.3 LTS (Linux 6.17.0-40-generic x64)
+* **Processor**: 11th Gen Intel(R) Core(TM) i5-11400H @ 2.70GHz (6 Cores / 12 Threads)
+* **Host RAM**: 7.45 GiB Total
+* **Virtualization**: Linux KVM (read/write) + Firecracker v1.16.0-dev
+* **Runtime**: Node.js v20.19.5 (V8 11.3.244.8-node.30)
+
+---
+
+### 1. VM Lifecycle (Cold Start)
+Measures the complete path from a cold request to an operational, interactive VM ready for agent commands.
+
+| Operation | Min | p50 (Median) | Mean | p95 | p99 | StdDev |
+|:----------|----:|-------------:|-----:|----:|----:|-------:|
+| network_setup | 50.8ms | 55.3ms | 58.8ms | 75.9ms | 75.9ms | 7.01ms |
+| jail_setup | 0.18ms | 0.20ms | 0.22ms | 0.27ms | 0.27ms | 32.3µs |
+| jailer_spawn | 0.74ms | 0.76ms | 0.76ms | 0.79ms | 0.79ms | 16.7µs |
+| api_socket_ready | 8.28ms | 14.24ms | 13.92ms | 19.2ms | 19.2ms | 3.44ms |
+| snapshot_restore | 2.21ms | 2.59ms | 2.77ms | 3.77ms | 3.77ms | 0.49ms |
+| vsock_connect | 86.6µs | 0.11ms | 0.13ms | 0.17ms | 0.17ms | 25.1µs |
+| first_message_rtt | 14.17ms | 15.3ms | 15.1ms | 15.5ms | 15.5ms | 0.41ms |
+| warm_message_rtt | 1.38ms | 1.48ms | 2.29ms | 9.42ms | 9.42ms | 2.38ms |
+| **TOTAL_COLD_START** | **83.1ms** | **90.6ms** | **91.8ms** | **104.8ms** | **104.8ms** | **6.39ms** |
+
+> **Key Insight**: Snapshot restoration takes only **~2.59ms**. Total cold start (~90.6ms) is primarily governed by Linux network namespace isolation (~55ms) and initial guest vsock handshake (~15ms).
+
+---
+
+### 2. Networking Breakdown
+Micro-benchmarks individual Linux network namespace, veth, TAP, NAT, and TC bandwidth components.
+
+| Operation | Min | p50 (Median) | Mean | p95 | p99 | StdDev |
+|:----------|----:|-------------:|-----:|----:|----:|-------:|
+| netns_create | 2.43ms | 2.45ms | 2.51ms | 2.99ms | 2.99ms | 0.16ms |
+| veth_pair_and_ip | 30.2ms | 35.7ms | 36.2ms | 42.7ms | 42.7ms | 3.62ms |
+| tap_device_setup | 6.44ms | 6.50ms | 6.50ms | 6.59ms | 6.59ms | 49.0µs |
+| sysctl_config | 5.40ms | 5.47ms | 5.52ms | 5.75ms | 5.75ms | 0.11ms |
+| iptables_egress_chain | 12.29ms | 12.56ms | 12.68ms | 13.51ms | 13.51ms | 0.39ms |
+| dns_filtering_setup | 2.13ms | 2.21ms | 2.26ms | 2.52ms | 2.52ms | 0.12ms |
+| tc_bandwidth_setup | 4.36ms | 4.46ms | 4.48ms | 4.64ms | 4.64ms | 85.9µs |
+| full_setupVmNetwork | 50.6ms | 53.7ms | 56.4ms | 69.4ms | 69.4ms | 5.55ms |
+| full_teardownVmNetwork | 15.3ms | 17.0ms | 19.2ms | 30.4ms | 30.4ms | 4.68ms |
+
+---
+
+### 3. Session Gateway & Concurrency
+Evaluates end-to-end HTTP/API execution, in-guest filesystem throughput, and parallel scaling under concurrent session bursts.
+
+| Operation | Min | p50 (Median) | Mean | p95 | p99 | StdDev |
+|:----------|----:|-------------:|-----:|----:|----:|-------:|
+| cold_session_start | 81.5ms | 91.6ms | 94.8ms | 114.5ms | 114.5ms | 8.79ms |
+| warm_session_message | 1.49ms | 1.54ms | 1.63ms | 1.90ms | 1.90ms | 0.13ms |
+| file_write_roundtrip | 0.99ms | 1.07ms | 1.12ms | 1.54ms | 1.54ms | 0.16ms |
+| file_read_roundtrip | 0.49ms | 0.54ms | 0.56ms | 0.64ms | 0.64ms | 45.3µs |
+| concurrent_burst_1 (1 VM) | 82.2ms | 98.1ms | 97.4ms | 109.5ms | 109.5ms | 8.60ms |
+| concurrent_burst_5 (5 VMs) | 198.3ms | 209.5ms | 217.9ms | 246.1ms | 246.1ms | 15.9ms |
+| concurrent_burst_10 (10 VMs) | 372.8ms | 401.4ms | 411.8ms | 469.0ms | 469.0ms | 32.4ms |
+
+---
+
+### 4. Cleanup & Teardown
+Measures instantaneous resource deallocation and teardown latencies.
+
+| Operation | Min | p50 (Median) | Mean | p95 | p99 | StdDev |
+|:----------|----:|-------------:|-----:|----:|----:|-------:|
+| fc_process_kill | 10.8µs | 11.8µs | 12.6µs | 19.4µs | 19.4µs | 2.4µs |
+| jail_directory_rmrf | 0.38ms | 0.43ms | 0.48ms | 0.71ms | 0.71ms | 0.10ms |
+| network_teardown | 7.19ms | 27.8ms | 25.7ms | 39.0ms | 39.0ms | 11.36ms |
+| full_cleanupVm | 7.34ms | 7.53ms | 7.78ms | 8.45ms | 8.45ms | 0.37ms |
+
+---
+
 ## Project Structure
 
 ```
