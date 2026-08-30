@@ -3,7 +3,7 @@ import type { Options } from "pino-http";
 import type { LoggerOptions } from "pino";
 
 const baseOptions: LoggerOptions = {
-  level: process.env.LOG_LEVEL || "debug",
+  level: process.env.LOG_LEVEL || "silent",
   redact: {
     paths: [
       "req.headers.authorization",

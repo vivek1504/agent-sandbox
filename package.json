@@ -9,7 +9,8 @@
     "test:coverage": "vitest run --coverage",
     "start": "tsc -b && node dist/server.js",
     "mcp": "tsc -b && node dist/mcp/stdio.js",
-    "keys": "tsc -b && node dist/auth/cli.js"
+    "keys": "tsc -b && node dist/auth/cli.js",
+    "bench": "tsc -b && sudo node dist/bench/index.js"
   },
   "keywords": [],
   "author": "",
