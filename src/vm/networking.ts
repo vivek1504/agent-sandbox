@@ -106,7 +106,7 @@ async function run(cmd: string, label: string): Promise<void> {
 }
 
 async function runInNs(nsName: string, cmd: string, label: string): Promise<void> {
-  const fullCmd = `ip netns exec ${nsName} ${cmd}`;
+  const fullCmd = `ip netns exec ${nsName} sh -c "${cmd.replace(/"/g, '\\"')}"`;
   vmLogger.debug({ cmd: fullCmd }, label);
   await execAsync(fullCmd);
 }
@@ -357,43 +357,27 @@ export async function setupVmNetwork(
     await run(`ip netns add ${info.nsName}`, "create namespace");
 
     await run(
-      `ip link add ${info.vethHost} type veth peer name ${info.vethNs}`,
-      "create veth pair",
+      [
+        `ip link add ${info.vethHost} type veth peer name ${info.vethNs}`,
+        `ip link set ${info.vethNs} netns ${info.nsName}`,
+        `ip link set ${info.vethHost} up`,
+        `ip addr add ${info.hostIp}/30 dev ${info.vethHost}`,
+      ].join(" && "),
+      "create veth pair and configure host side",
     );
 
-    await run(
-      `ip link set ${info.vethNs} netns ${info.nsName}`,
-      "move veth to namespace",
-    );
-    await run(`ip link set ${info.vethHost} up`, "bring up host veth");
-    await run(
-      `ip addr add ${info.hostIp}/30 dev ${info.vethHost}`,
-      "assign host veth IP",
-    );
-
-    await runInNs(info.nsName, "ip link set lo up", "bring up loopback");
     await runInNs(
       info.nsName,
-      `ip link set ${info.vethNs} up`,
-      "bring up namespace veth",
-    );
-    await runInNs(
-      info.nsName,
-      `ip addr add ${info.nsIp}/30 dev ${info.vethNs}`,
-      "assign namespace veth IP",
-    );
-    await runInNs(
-      info.nsName,
-      `ip route add default via ${info.hostIp}`,
-      "set default route in namespace",
-    );
-
-    await runInNs(info.nsName, "ip tuntap add tap0 mode tap", "create TAP");
-    await runInNs(info.nsName, "ip link set tap0 up", "bring up TAP");
-    await runInNs(
-      info.nsName,
-      `ip addr add ${info.tapIp}/29 dev tap0`,
-      "assign TAP IP",
+      [
+        "ip link set lo up",
+        `ip link set ${info.vethNs} up`,
+        `ip addr add ${info.nsIp}/30 dev ${info.vethNs}`,
+        `ip route add default via ${info.hostIp}`,
+        "ip tuntap add tap0 mode tap",
+        "ip link set tap0 up",
+        `ip addr add ${info.tapIp}/29 dev tap0`,
+      ].join(" && "),
+      "configure namespace interfaces and routing",
     );
 
     await Promise.all([

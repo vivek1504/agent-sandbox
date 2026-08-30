@@ -1,5 +1,7 @@
 import { spawn } from "child_process";
 import net from "net";
+import fs from "fs";
+import path from "path";
 import axios from "axios";
 import crypto from "crypto";
 import { vmLogger } from "../logger.js";
@@ -155,19 +157,33 @@ export async function createVm(
 }
 
 export async function waitForFirecrackerApiSocket(
-  path: string,
+  socketPath: string,
   timeout = 5000,
-) {
+): Promise<void> {
+  const start = Date.now();
+  const dir = path.dirname(socketPath);
+  const base = path.basename(socketPath);
+
   return new Promise<void>((resolve, reject) => {
-    const start = Date.now();
+    let resolved = false;
+    let watcher: fs.FSWatcher | undefined;
+    let timer: NodeJS.Timeout | undefined;
+
+    const cleanup = () => {
+      resolved = true;
+      watcher?.close();
+      if (timer) clearTimeout(timer);
+    };
 
     const tryConnect = () => {
-      const client = net.createConnection({ path });
+      if (resolved) return;
+      const client = net.createConnection({ path: socketPath });
 
       client.once("connect", () => {
         client.destroy();
+        cleanup();
         vmLogger.debug(
-          { path, elapsedMs: Date.now() - start },
+          { path: socketPath, elapsedMs: Date.now() - start },
           "API socket connected",
         );
         resolve();
@@ -175,17 +191,29 @@ export async function waitForFirecrackerApiSocket(
 
       client.once("error", () => {
         client.destroy();
-
+        if (resolved) return;
         if (Date.now() - start > timeout) {
+          cleanup();
           vmLogger.error(
-            { path, timeoutMs: timeout },
+            { path: socketPath, timeoutMs: timeout },
             "API socket connection timeout",
           );
           return reject(new Error("socket timeout"));
         }
-        setTimeout(tryConnect, 50);
+        timer = setTimeout(tryConnect, 5);
       });
     };
+
+    try {
+      if (fs.existsSync(dir)) {
+        watcher = fs.watch(dir, (_event, filename) => {
+          if (filename === base) tryConnect();
+        });
+        watcher.on("error", () => {});
+      }
+    } catch {
+      // watch setup failed — fall through to polling
+    }
 
     tryConnect();
   });
