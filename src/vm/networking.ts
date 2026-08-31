@@ -135,6 +135,13 @@ async function setupEgressChain(info: VmNetworkInfo): Promise<void> {
     `iptables -A FORWARD -i tap0 -o ${info.vethNs} -j VM_EGRESS`,
     "forward tap->veth via IPv4 VM_EGRESS chain",
   );
+
+  // Block IPv6 forward traffic to prevent egress policy bypass
+  await runInNs(
+    info.nsName,
+    "ip6tables -P FORWARD DROP 2>/dev/null || true",
+    "drop IPv6 forward traffic in namespace",
+  );
 }
 
 
@@ -395,6 +402,11 @@ export async function setupVmNetwork(
         info.nsName,
         "sysctl -w net.ipv4.conf.all.rp_filter=0",
         "disable rp_filter for all",
+      ),
+      runInNs(
+        info.nsName,
+        "sysctl -w net.ipv6.conf.all.disable_ipv6=1 2>/dev/null || true",
+        "disable ipv6 in namespace",
       ),
     ]);
 
