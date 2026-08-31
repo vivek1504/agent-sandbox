@@ -37,7 +37,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
 app.use("/mcp", authMiddleware("exec"), mcpRouter);
 app.use("/exec", authMiddleware("exec"), requireOwnership, execRouter);
@@ -60,6 +60,19 @@ app.get("/ready", (_req, res) => {
   res
     .status(healthy ? 200 : 503)
     .json({ status: healthy ? "ready" : "not_ready", checks });
+});
+
+// JSON parse error & payload too large handler
+app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err?.type === "entity.too.large") {
+    res.status(413).json({ error: "Payload too large. Maximum size is 10MB." });
+    return;
+  }
+  if (err instanceof SyntaxError && "body" in err) {
+    res.status(400).json({ error: "Malformed JSON payload" });
+    return;
+  }
+  next(err);
 });
 
 startSessionReaper();
