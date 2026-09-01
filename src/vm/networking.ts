@@ -137,13 +137,41 @@ async function setupEgressChain(info: VmNetworkInfo): Promise<void> {
   );
 
   // Block IPv6 forward traffic to prevent egress policy bypass
-  await runInNs(
-    info.nsName,
-    "ip6tables -P FORWARD DROP 2>/dev/null || true",
-    "drop IPv6 forward traffic in namespace",
-  );
+  try {
+    await runInNs(
+      info.nsName,
+      "ip6tables -P INPUT DROP && ip6tables -P FORWARD DROP && ip6tables -P OUTPUT DROP",
+      "drop IPv6 traffic in namespace",
+    );
+  } catch (err) {
+    let ipv6Enabled = false;
+    try {
+      if (fs.existsSync("/proc/sys/net/ipv6/conf/all/disable_ipv6")) {
+        ipv6Enabled = fs.readFileSync("/proc/sys/net/ipv6/conf/all/disable_ipv6", "utf-8").trim() === "0";
+      }
+    } catch {}
+
+    if (ipv6Enabled && (process.env.STRICT_PERMISSIONS === "true" || process.env.NODE_ENV === "production")) {
+      throw new Error(
+        `Failed to enforce IPv6 egress drop inside namespace ${info.nsName} while host IPv6 is enabled: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    vmLogger.warn(
+      { nsName: info.nsName, err },
+      "ip6tables could not be configured in namespace; IPv6 module may not be present",
+    );
+  }
 }
 
+function sanitizeDomain(domain: string): string | null {
+  const clean = domain.startsWith("*.") ? domain.slice(2) : domain;
+  const trimmed = clean.trim();
+  if (!/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(trimmed)) {
+    vmLogger.warn({ domain }, "skipping invalid domain name in DNS policy");
+    return null;
+  }
+  return trimmed;
+}
 
 async function setupDnsFiltering(info: VmNetworkInfo, dns: DnsPolicy): Promise<void> {
   if (dns.mode === "none") return;
@@ -163,13 +191,13 @@ async function setupDnsFiltering(info: VmNetworkInfo, dns: DnsPolicy): Promise<v
 
   if (dns.mode === "deny") {
     for (const domain of dns.domains) {
-      const clean = domain.startsWith("*.") ? domain.slice(2) : domain;
+      const clean = sanitizeDomain(domain);
       if (clean) config += `address=/${clean}/\n`;
     }
   } else if (dns.mode === "allow") {
     config += `address=/#/\n`;
     for (const domain of dns.domains) {
-      const clean = domain.startsWith("*.") ? domain.slice(2) : domain;
+      const clean = sanitizeDomain(domain);
       if (clean) config += `server=/${clean}/${upstreamServers[0]}\n`;
     }
   }
