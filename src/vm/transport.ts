@@ -43,16 +43,28 @@ export async function connectVsock(
   });
 }
 
-export async function getVmSocket(vm: Vm) {
+export async function getVmSocket(vm: Vm): Promise<Socket> {
   if (vm.socket && !vm.socket.destroyed) {
     return vm.socket;
   }
 
-  vmLogger.debug({ vmId: vm.id, vsock: vm.vsock }, "establishing new VM socket");
-  vm.socket = await connectVsock(vm.vsock);
-  vm.socket.write("CONNECT 5000\n");
+  if (vm.connectingSocket) {
+    return vm.connectingSocket;
+  }
 
-  return vm.socket;
+  vm.connectingSocket = (async () => {
+    try {
+      vmLogger.debug({ vmId: vm.id, vsock: vm.vsock }, "establishing new VM socket");
+      const socket = await connectVsock(vm.vsock);
+      socket.write("CONNECT 5000\n");
+      vm.socket = socket;
+      return socket;
+    } finally {
+      vm.connectingSocket = undefined;
+    }
+  })();
+
+  return vm.connectingSocket;
 }
 
 /**
