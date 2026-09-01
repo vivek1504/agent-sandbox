@@ -153,7 +153,8 @@ Install a typed client library and start running code in two lines.
 #### TypeScript / JavaScript
 
 ```bash
-npm install @agent-sandbox/sdk
+# Install locally from the workspace
+npm install ./sdk/typescript
 ```
 
 ```ts
@@ -252,9 +253,16 @@ Every session gets defense-in-depth isolation:
 | **Filesystem** | Read-only ext4 rootfs + isolated 512MB tmpfs workspace mount |
 | **Network** | Per-VM Linux network namespace (veth + TAP + NAT) with IPv4 egress chains and IPv6 DROP |
 | **Process** | Firecracker Jailer — chroot (`0o750` perms), UID/GID separation, and default seccomp filter |
-| **Resources** | Host cgroups (CPU quota/period, memory max, file descriptor limits) |
+| **Resources** | Host cgroups (CPU quota/period, memory max, `pids.max` fork-bomb limits, file descriptor limits) |
 | **Lifecycle** | Automatic reaping of idle sessions (default: 30 min TTL) + startup orphan recovery |
 | **Security** | Path traversal prevention on all file and workspace operations |
+
+### Security & Isolation Hardening
+
+- **Fork-Bomb Mitigation**: Each microVM jail applies `--cgroup pids.max=256` via cgroups v2/v1 to prevent hostile code inside the guest from exhausting host PID tables.
+- **Strict Permission Verification**: Chroot directories enforce `0o750` permissions and ownership by the dedicated unprivileged `firecracker` UID/GID. Setting `STRICT_PERMISSIONS=true` (or running in `NODE_ENV=production`) ensures any permission failure halts execution rather than falling back silently.
+- **IPv6 Containment**: Inside per-VM network namespaces, IPv6 traffic is dropped by default (`ip6tables -P DROP`) to prevent uninspected IPv6 egress bypass.
+- **Header-Only Authentication**: In accordance with OWASP security standards, API keys are accepted strictly via HTTP headers (`Authorization: Bearer` or `X-API-Key`). Query parameter authentication is rejected to prevent credential leakage.
 
 ---
 
@@ -285,13 +293,13 @@ npm run keys revoke <key-id>
 
 ### Authentication Usage
 
-API keys can be supplied via HTTP headers, query parameters, or the SDK:
+API keys must be supplied via HTTP headers (query parameter authentication is strictly rejected to prevent credentials from leaking into server access logs, URL histories, or referrer headers):
 
 ```bash
-# Authorization Header
+# Authorization Header (Standard)
 curl -H "Authorization: Bearer sk_test_..." http://localhost:3000/exec/templates
 
-# X-API-Key Header
+# X-API-Key Header (Alternative)
 curl -H "X-API-Key: sk_test_..." http://localhost:3000/exec/templates
 ```
 
@@ -441,6 +449,8 @@ All configuration is via environment variables:
 | `VM_CPU_PERIOD_US` | `100000` | CPU period in microseconds for cgroups |
 | `VM_MEMORY_LIMIT_BYTES` | `134217728` (128 MiB) | Host-side cgroup memory limit in bytes |
 | `VM_NOFILE_LIMIT` | `1024` | Maximum number of open file descriptors for the VM process |
+| `VM_PIDS_LIMIT` | `256` | Maximum number of processes inside jail cgroup (fork-bomb mitigation) |
+| `STRICT_PERMISSIONS` | `false` | Fail fast if jail chmod/chown fails (automatically enabled in production) |
 | `VM_DNS_MODE` | `none` | Per-VM DNS filtering mode (`none`, `allow`, `deny`) |
 | `VM_DNS_DOMAINS` | `""` | Comma-separated domain filter list (e.g. `*.npmjs.org,github.com`) |
 | `VM_DNS_UPSTREAM` | `8.8.8.8,1.1.1.1` | Comma-separated upstream DNS servers |
