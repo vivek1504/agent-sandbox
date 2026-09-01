@@ -273,24 +273,35 @@ export function computeStats(name: string, samples: number[]): TimingResult {
   const mean = sum / sorted.length;
   const variance = sorted.reduce((acc, v) => acc + (v - mean) ** 2, 0) / sorted.length;
 
+  const median =
+    sorted.length % 2 === 0
+      ? ((sorted[sorted.length / 2 - 1] ?? 0) + (sorted[sorted.length / 2] ?? 0)) / 2
+      : (sorted[Math.floor(sorted.length / 2)] ?? 0);
+
   return {
     name,
     samples: sorted,
     min: sorted[0] ?? 0,
     max: sorted[sorted.length - 1] ?? 0,
     mean,
-    median: percentile(sorted, 50),
+    median,
     p95: percentile(sorted, 95),
     p99: percentile(sorted, 99),
     stddev: Math.sqrt(variance),
   };
 }
 
-function percentile(sorted: number[], p: number): number {
+export function percentile(sorted: number[], p: number): number {
   if (sorted.length === 0) return 0;
-  const idx = Math.ceil((p / 100) * sorted.length) - 1;
-  const clampedIdx = Math.max(0, Math.min(idx, sorted.length - 1));
-  return sorted[clampedIdx] ?? 0;
+  if (sorted.length === 1) return sorted[0] ?? 0;
+  // Standard linear interpolation between data points
+  const rank = (p / 100) * (sorted.length - 1);
+  const lower = Math.floor(rank);
+  const upper = Math.ceil(rank);
+  const weight = rank - lower;
+  const lowerVal = sorted[lower] ?? 0;
+  const upperVal = sorted[upper] ?? 0;
+  return lowerVal + weight * (upperVal - lowerVal);
 }
 
 export function splitDuration(ms: number): { value: string; unit: string } {
