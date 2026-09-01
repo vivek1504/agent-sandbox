@@ -9,11 +9,24 @@ execRouter.get("/templates", (_req, res) => {
   res.json({ templates: listTemplates() });
 });
 
+function handleRouteError(res: any, err: any) {
+  const msg = err?.message || "Internal server error";
+  if (msg.includes("timeout") || msg.includes("Timeout")) {
+    return res.status(504).json({ error: msg, code: "GATEWAY_TIMEOUT" });
+  }
+  if (msg.includes("traversal") || msg.includes("required") || msg.includes("invalid") || msg.includes("Unknown template")) {
+    return res.status(400).json({ error: msg, code: "BAD_REQUEST" });
+  }
+  return res.status(500).json({ error: msg, code: "INTERNAL_ERROR" });
+}
+
 execRouter.post("/:sessionId/execute", async (req, res) => {
   const { sessionId } = req.params;
   const { command, args, cwd, env, timeout, template } = req.body;
 
-  if (!command) return res.status(400).json({ error: "command is required" });
+  if (!command || typeof command !== "string") {
+    return res.status(400).json({ error: "command is required and must be a string", code: "BAD_REQUEST" });
+  }
 
   const wantsNdjson =
     req.headers.accept === "application/x-ndjson" ||
@@ -67,16 +80,17 @@ execRouter.post("/:sessionId/execute", async (req, res) => {
       output,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    handleRouteError(res, err);
   }
 });
-
 
 execRouter.post("/:sessionId/write", async (req, res) => {
   const { sessionId } = req.params;
   const { path, content, mode } = req.body;
 
-  if (!path || !content) return res.status(400).json({ error: "path and content required" });
+  if (!path || typeof path !== "string" || content === undefined || typeof content !== "string") {
+    return res.status(400).json({ error: "path and content required and must be strings", code: "BAD_REQUEST" });
+  }
 
   try {
     const contentBase64 = Buffer.from(content, "utf8").toString("base64");
@@ -90,7 +104,7 @@ execRouter.post("/:sessionId/write", async (req, res) => {
     );
     res.json(result.data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    handleRouteError(res, err);
   }
 });
 
@@ -98,7 +112,9 @@ execRouter.get("/:sessionId/read", async (req, res) => {
   const { sessionId } = req.params;
   const { path } = req.query;
 
-  if (!path) return res.status(400).json({ error: "path query param required" });
+  if (!path || typeof path !== "string") {
+    return res.status(400).json({ error: "path query param required and must be a string", code: "BAD_REQUEST" });
+  }
 
   try {
     const result = await sendSessionMessage(
@@ -115,7 +131,7 @@ execRouter.get("/:sessionId/read", async (req, res) => {
       content: Buffer.from(data.content, "base64").toString("utf8"),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    handleRouteError(res, err);
   }
 });
 
@@ -134,14 +150,19 @@ execRouter.get("/:sessionId/files", async (req, res) => {
     );
     res.json(result.data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    handleRouteError(res, err);
   }
 });
 
 execRouter.delete("/:sessionId", async (req, res) => {
   const { sessionId } = req.params;
-  const destroyed = await destroySession(sessionId);
-  res.json({ destroyed });
+  const ownerId = req.apiKey?.scopes.includes("admin") ? undefined : req.apiKey?.id;
+  try {
+    const destroyed = await destroySession(sessionId, ownerId);
+    res.json({ destroyed });
+  } catch (err: any) {
+    handleRouteError(res, err);
+  }
 });
 
 execRouter.get("/", (req, res) => {

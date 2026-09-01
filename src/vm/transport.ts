@@ -43,16 +43,32 @@ export async function connectVsock(
   });
 }
 
-export async function getVmSocket(vm: Vm) {
+const connectingSockets = new Map<string, Promise<Socket>>();
+
+export async function getVmSocket(vm: Vm): Promise<Socket> {
   if (vm.socket && !vm.socket.destroyed) {
     return vm.socket;
   }
 
-  vmLogger.debug({ vmId: vm.id, vsock: vm.vsock }, "establishing new VM socket");
-  vm.socket = await connectVsock(vm.vsock);
-  vm.socket.write("CONNECT 5000\n");
+  const existingPromise = connectingSockets.get(vm.id);
+  if (existingPromise) {
+    return existingPromise;
+  }
 
-  return vm.socket;
+  vmLogger.debug({ vmId: vm.id, vsock: vm.vsock }, "establishing new VM socket");
+  const connectPromise = (async () => {
+    try {
+      const socket = await connectVsock(vm.vsock);
+      socket.write("CONNECT 5000\n");
+      vm.socket = socket;
+      return socket;
+    } finally {
+      connectingSockets.delete(vm.id);
+    }
+  })();
+
+  connectingSockets.set(vm.id, connectPromise);
+  return connectPromise;
 }
 
 /**

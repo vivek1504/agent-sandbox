@@ -23,7 +23,7 @@ import {
 } from "./networking.js";
 import { type EgressPolicy, loadEgressPolicy } from "./egress-policy.js";
 
-import type { ChildProcessWithoutNullStreams } from "child_process";
+import type { ChildProcess } from "child_process";
 import type { Socket } from "net";
 import { getTemplate, resolveTemplateName } from "./templates.js";
 
@@ -32,7 +32,7 @@ export type VmState = "creating" | "restoring" | "ready" | "busy" | "dead";
 export interface Vm {
   id: string;
   state: VmState;
-  firecrackerProcess: ChildProcessWithoutNullStreams;
+  firecrackerProcess: ChildProcess;
   apiSock: string;
   vsock: string;
   jailDir?: string;
@@ -64,7 +64,7 @@ export async function createVm(
 
   const start = performance.now();
   let jail: JailPaths | undefined;
-  let fc: ChildProcessWithoutNullStreams | undefined;
+  let fc: ChildProcess | undefined;
   let networkInfo: VmNetworkInfo | undefined;
 
   vmLogger.info(
@@ -77,12 +77,35 @@ export async function createVm(
     networkInfo = await setupVmNetwork(instanceId, egressPolicy);
 
     jail = prepareJail(instanceId, template);
-    fc = spawn(JAILER_BIN, jailerArgs(instanceId, networkInfo.nsPath, mergedResources));
-    fc.on("error", (err) => {
+    const child = spawn(JAILER_BIN, jailerArgs(instanceId, networkInfo.nsPath, mergedResources), {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    fc = child;
+    child.stdout?.resume();
+    child.stderr?.on("data", (data) => {
+      vmLogger.debug({ instanceId, stderr: data.toString().trim() }, "jailer stderr");
+    });
+    child.on("error", (err) => {
       vmLogger.error({ instanceId, err }, "jailer process error");
     });
 
-    fc.on("exit", (code, signal) => {
+    const vm: Vm = {
+      id: instanceId,
+      state: "creating",
+      firecrackerProcess: child,
+      apiSock: jail.apiSocket,
+      vsock: jail.vsockSocket,
+      jailDir: jail.instanceDir,
+      networkInfo,
+    };
+
+    child.on("exit", (code, signal) => {
+      vm.state = "dead";
+      if (vm.socket && !vm.socket.destroyed) {
+        try {
+          vm.socket.destroy();
+        } catch {}
+      }
       vmLogger.info(
         { instanceId, exitCode: code, signal },
         "jailer process exited",
@@ -94,15 +117,7 @@ export async function createVm(
     const client = createFcClient(jail.apiSocket);
     await restoreVm(client, jail);
 
-    const vm: Vm = {
-      id: instanceId,
-      state: "ready",
-      firecrackerProcess: fc,
-      apiSock: jail.apiSocket,
-      vsock: jail.vsockSocket,
-      jailDir: jail.instanceDir,
-      networkInfo,
-    };
+    vm.state = "ready";
 
     const durationSec = (performance.now() - start) / 1000;
     vmCreationTime.observe(durationSec);
@@ -240,16 +255,12 @@ export async function restoreVm(
 
   await client.put("/snapshot/load", {
     snapshot_path: jail.snapshotPath,
-
     mem_backend: {
       backend_path: jail.memoryPath,
       backend_type: "File",
     },
-    track_dirty_pages: true,
+    track_dirty_pages: false,
     resume_vm: true,
-    vsock_override: {
-      uds_path: "/run/vsock.socket",
-    },
   });
 
   vmLogger.debug("VM restored from snapshot");

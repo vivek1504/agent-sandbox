@@ -135,6 +135,17 @@ async function setupEgressChain(info: VmNetworkInfo): Promise<void> {
     `iptables -A FORWARD -i tap0 -o ${info.vethNs} -j VM_EGRESS`,
     "forward tap->veth via IPv4 VM_EGRESS chain",
   );
+
+  // Drop all IPv6 traffic inside namespace to prevent uninspected IPv6 egress bypass
+  try {
+    await runInNs(
+      info.nsName,
+      `ip6tables -P INPUT DROP 2>/dev/null && ip6tables -P FORWARD DROP 2>/dev/null && ip6tables -P OUTPUT DROP 2>/dev/null`,
+      "block IPv6 traffic in namespace",
+    );
+  } catch {
+    // Intentional fallback: kernel may have IPv6 module disabled
+  }
 }
 
 
@@ -180,6 +191,16 @@ async function setupDnsFiltering(info: VmNetworkInfo, dns: DnsPolicy): Promise<v
   );
 
   await Promise.all([
+    runInNs(
+      info.nsName,
+      `iptables -t nat -A PREROUTING -i tap0 -p udp --dport 53 -j DNAT --to-destination ${info.tapIp}:53`,
+      "transparent DNS redirect (UDP)",
+    ),
+    runInNs(
+      info.nsName,
+      `iptables -t nat -A PREROUTING -i tap0 -p tcp --dport 53 -j DNAT --to-destination ${info.tapIp}:53`,
+      "transparent DNS redirect (TCP)",
+    ),
     runInNs(
       info.nsName,
       `iptables -A VM_EGRESS -p udp --dport 53 -j DROP`,
@@ -349,9 +370,11 @@ export async function setupVmNetwork(
   );
 
   try {
-    await execAsync(`ip netns delete ${info.nsName} 2>/dev/null`).catch(() => {});
-    await execAsync(`ip link delete ${info.vethHost} 2>/dev/null`).catch(() => {});
-  } catch {}
+    await execAsync(`ip netns delete ${info.nsName} 2>/dev/null`).catch(() => { /* pre-cleanup: ignore if absent */ });
+    await execAsync(`ip link delete ${info.vethHost} 2>/dev/null`).catch(() => { /* pre-cleanup: ignore if absent */ });
+  } catch {
+    // Intentional fallback: interface or namespace already non-existent
+  }
 
   try {
     await run(`ip netns add ${info.nsName}`, "create namespace");
@@ -388,13 +411,13 @@ export async function setupVmNetwork(
       ),
       runInNs(
         info.nsName,
-        "sysctl -w net.ipv4.conf.tap0.rp_filter=0",
-        "disable rp_filter for tap0",
+        "sysctl -w net.ipv4.conf.tap0.rp_filter=2",
+        "set loose rp_filter for tap0",
       ),
       runInNs(
         info.nsName,
-        "sysctl -w net.ipv4.conf.all.rp_filter=0",
-        "disable rp_filter for all",
+        "sysctl -w net.ipv4.conf.all.rp_filter=2",
+        "set loose rp_filter for all",
       ),
     ]);
 
@@ -569,5 +592,17 @@ export function ensureHostNetworkSetup(): void {
     }
   } catch (err) {
     vmLogger.warn({ err }, "could not verify/add host FORWARD rules");
+  }
+
+  try {
+    const existingInput = execSync("iptables -S INPUT", { encoding: "utf-8" });
+    if (!existingInput.includes("-s 10.0.0.0/16 -m conntrack ! --ctstate RELATED,ESTABLISHED -j DROP")) {
+      run(
+        `iptables -I INPUT -s 10.0.0.0/16 -m conntrack ! --ctstate RELATED,ESTABLISHED -j DROP`,
+        "block VMs from accessing host services (host-level)",
+      );
+    }
+  } catch (err) {
+    vmLogger.warn({ err }, "could not verify/add host INPUT rules");
   }
 }

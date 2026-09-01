@@ -43,9 +43,13 @@ export function touchSession(sessionId: string): void {
   if (session) session.lastActivityAt = Date.now();
 }
 
-export async function destroySession(sessionId: string): Promise<boolean> {
+export async function destroySession(sessionId: string, requesterOwnerId?: string): Promise<boolean> {
   const session = sessions.get(sessionId);
   if (!session) return false;
+
+  if (session.ownerId && requesterOwnerId && session.ownerId !== requesterOwnerId) {
+    throw new Error("Session belongs to another API key");
+  }
 
   session.state = "destroying";
 

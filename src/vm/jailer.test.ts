@@ -8,6 +8,8 @@ vi.mock("fs", () => ({
     mkdirSync: vi.fn(),
     linkSync: vi.fn(),
     rmSync: vi.fn(),
+    chmodSync: vi.fn(),
+    chownSync: vi.fn(),
   },
 }));
 
@@ -88,13 +90,58 @@ describe("jailer", () => {
       expect(argsStr).toContain("--cgroup-version 2");
       expect(argsStr).toContain("cpu.max=25000 100000");
       expect(argsStr).toContain(`memory.max=${64 * 1024 * 1024}`);
+      expect(argsStr).toContain("pids.max=256");
     } else {
       expect(argsStr).toContain("--cgroup-version 1");
       expect(argsStr).toContain("cpu.cpu.cfs_quota_us=25000");
       expect(argsStr).toContain("cpu.cpu.cfs_period_us=100000");
       expect(argsStr).toContain(`memory.memory.limit_in_bytes=${64 * 1024 * 1024}`);
+      expect(argsStr).toContain("pids.pids.max=256");
     }
   });
+
+  it("includes custom pidsLimit when specified", () => {
+    const args = jailerArgs("test-pids", undefined, {
+      ...loadResourceConfig(),
+      pidsLimit: 512,
+    });
+    const argsStr = args.join(" ");
+    const cgroupVer = detectCgroupVersion();
+    if (cgroupVer === 2) {
+      expect(argsStr).toContain("pids.max=512");
+    } else {
+      expect(argsStr).toContain("pids.pids.max=512");
+    }
+  });
+
+  it("enforces strict permissions and throws when chmod fails in production", () => {
+    process.env.NODE_ENV = "production";
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    vi.mocked(fs.chmodSync).mockImplementation(() => {
+      throw new Error("EPERM: operation not permitted");
+    });
+
+    const mockTemplate = {
+      manifest: {
+        name: "node",
+        displayName: "Node",
+        version: "1.0.0",
+        description: "Node environment",
+        tools: ["node"],
+        baseImage: "alpine",
+        createdAt: "2026-08-10T00:00:00Z",
+      },
+      rootfsPath: "/var/lib/agent-sandbox/artifacts/templates/node/rootfs.ext4",
+      snapshotPath: "/var/lib/agent-sandbox/artifacts/templates/node/snapshot",
+      memoryPath: "/var/lib/agent-sandbox/artifacts/templates/node/memory",
+    };
+
+    expect(() => prepareJail("strict-test", mockTemplate)).toThrow(
+      /Failed to set strict permissions on jail directory in production/,
+    );
+    delete process.env.NODE_ENV;
+  });
+
   it("uses default resources when none specified", () => {
     const args = jailerArgs("test2");
     const argsStr = args.join(" ");

@@ -58,4 +58,31 @@ describe("readVsockResponse", () => {
       "Function timeout",
     );
   });
+
+  it("delivers stream chunks and completes with final response", async () => {
+    const socket = makeFakeSocket();
+    const chunks: any[] = [];
+    const promise = readVsockResponse(
+      socket,
+      500,
+      (chunk) => chunks.push(chunk),
+      "msg-123",
+    );
+
+    socket.push(
+      JSON.stringify({ type: "stream", id: "msg-123", stream: "stdout", data: "chunk 1\n" }) + "\n",
+    );
+    socket.push(
+      JSON.stringify({ type: "stream", id: "msg-123", stream: "stdout", data: "chunk 2\n" }) + "\n",
+    );
+    socket.push(
+      JSON.stringify({ type: "response", id: "msg-123", data: { exitCode: 0 } }) + "\n",
+    );
+
+    const res = await promise;
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0].data).toBe("chunk 1\n");
+    expect(chunks[1].data).toBe("chunk 2\n");
+    expect(res.data.exitCode).toBe(0);
+  });
 });

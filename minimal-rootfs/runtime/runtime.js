@@ -106,7 +106,7 @@ function handleExecute(socket, msg) {
   const timer = setTimeout(() => {
     proc.kill("SIGTERM");
     setTimeout(() => {
-      if (!proc.killed) proc.kill("SIGKILL");
+      if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL");
     }, 5000);
   }, timeout);
 
@@ -236,7 +236,7 @@ function handleCancel(socket, msg) {
 
   proc.kill("SIGTERM");
   setTimeout(() => {
-    if (!proc.killed) proc.kill("SIGKILL");
+    if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL");
   }, 5000);
 }
 

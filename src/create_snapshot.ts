@@ -8,6 +8,7 @@ import {
   jailerArgs,
   ARTIFACTS_DIR,
   prepareSnapshotCreationJail,
+  removeJail,
   type JailPaths,
   type VmResourceConfig,
   loadResourceConfig,
@@ -135,93 +136,109 @@ async function main() {
     fs.copyFileSync(rootfsSource, templateRootfs);
   }
 
-  const jail = prepareSnapshotCreationJail(functionId, templateRootfs);
-
-  console.log(`Setting up network namespace for template "${templateName}" snapshot creation...`);
+  let jail: JailPaths | undefined;
   let networkInfo: VmNetworkInfo | undefined;
+  let fc: any;
+
   try {
-    networkInfo = await setupVmNetwork(functionId);
-  } catch (err) {
-    console.error("Failed to set up network namespace:", err);
-    console.error("Ensure you have root/CAP_NET_ADMIN privileges.");
-    process.exit(1);
-  }
+    jail = prepareSnapshotCreationJail(functionId, templateRootfs);
 
-  const vmResources: VmResourceConfig = loadResourceConfig();
-
-  console.log("Starting Firecracker process...");
-  const fc = await startFirecrackerProcess(functionId, jail, networkInfo.nsPath, vmResources);
-
-  console.log("Configuring VM...");
-  const client = createFcClient(jail.apiSocket);
-
-  const readyPromise = waitForVmReady(fc);
-  await configureVm(client, vmResources);
-
-  console.log("Waiting for VM READY signal...");
-  await readyPromise;
-  console.log("VM is ready!");
-
-  console.log("Pausing VM...");
-  await client.patch("/vm", { state: "Paused" });
-
-  const snapshotPath = path.join(jail.rootDir, "artifacts", "snapshot");
-  const memPath = path.join(jail.rootDir, "artifacts", "memory");
-
-  console.log(`Creating snapshot at:\n  ${snapshotPath}\n  ${memPath}`);
-  await client.put("/snapshot/create", {
-    snapshot_type: "Full",
-    snapshot_path: "/artifacts/snapshot",
-    mem_file_path: "/artifacts/memory",
-  });
-
-  console.log("Snapshot created successfully!");
-  console.log("Killing Firecracker process...");
-  fc.kill("SIGKILL");
-
-  console.log(
-    `  ${snapshotPath} (${(fs.statSync(snapshotPath).size / 1024).toFixed(0)} KB)`,
-  );
-  console.log(
-    `  ${memPath} (${(fs.statSync(memPath).size / 1024 / 1024).toFixed(1)} MB)`,
-  );
-
-  const targetSnapshot = path.join(templateDir, "snapshot");
-  const targetMemory = path.join(templateDir, "memory");
-
-  fs.copyFileSync(snapshotPath, targetSnapshot);
-  fs.copyFileSync(memPath, targetMemory);
-
-  const manifest = {
-    name: templateName,
-    displayName: templateName.charAt(0).toUpperCase() + templateName.slice(1),
-    version: "1.0.0",
-    description: `${templateName} environment template`,
-    tools: [templateName, "sh"],
-    baseImage: "alpine:3.20",
-    createdAt: new Date().toISOString(),
-  };
-  fs.writeFileSync(
-    path.join(templateDir, "template.json"),
-    JSON.stringify(manifest, null, 2),
-  );
-
-  if (templateName === "node") {
-    fs.copyFileSync(snapshotPath, path.join(ARTIFACTS_DIR, "snapshot-exec"));
-    fs.copyFileSync(memPath, path.join(ARTIFACTS_DIR, "mem-exec"));
-    if (!fs.existsSync(path.join(ARTIFACTS_DIR, "rootfs.ext4"))) {
-      fs.copyFileSync(templateRootfs, path.join(ARTIFACTS_DIR, "rootfs.ext4"));
-    }
-  }
-
-  console.log(`\nDone! Template "${templateName}" created at ${templateDir}`);
-
-  if (networkInfo) {
-    console.log("Cleaning up snapshot network namespace...");
+    console.log(`Setting up network namespace for template "${templateName}" snapshot creation...`);
     try {
-      await teardownVmNetwork(networkInfo);
+      networkInfo = await setupVmNetwork(functionId);
     } catch (err) {
-      console.warn("Warning: failed to clean up network namespace:", err);
+      console.error("Failed to set up network namespace:", err);
+      console.error("Ensure you have root/CAP_NET_ADMIN privileges.");
+      process.exit(1);
+    }
+
+    const vmResources: VmResourceConfig = loadResourceConfig();
+
+    console.log("Starting Firecracker process...");
+    fc = await startFirecrackerProcess(functionId, jail, networkInfo.nsPath, vmResources);
+
+    console.log("Configuring VM...");
+    const client = createFcClient(jail.apiSocket);
+
+    const readyPromise = waitForVmReady(fc);
+    await configureVm(client, vmResources);
+
+    console.log("Waiting for VM READY signal...");
+    await readyPromise;
+    console.log("VM is ready!");
+
+    console.log("Pausing VM...");
+    await client.patch("/vm", { state: "Paused" });
+
+    const snapshotPath = path.join(jail.rootDir, "artifacts", "snapshot");
+    const memPath = path.join(jail.rootDir, "artifacts", "memory");
+
+    console.log(`Creating snapshot at:\n  ${snapshotPath}\n  ${memPath}`);
+    await client.put("/snapshot/create", {
+      snapshot_type: "Full",
+      snapshot_path: "/artifacts/snapshot",
+      mem_file_path: "/artifacts/memory",
+    });
+
+    console.log("Snapshot created successfully!");
+
+    console.log(
+      `  ${snapshotPath} (${(fs.statSync(snapshotPath).size / 1024).toFixed(0)} KB)`,
+    );
+    console.log(
+      `  ${memPath} (${(fs.statSync(memPath).size / 1024 / 1024).toFixed(1)} MB)`,
+    );
+
+    const targetSnapshot = path.join(templateDir, "snapshot");
+    const targetMemory = path.join(templateDir, "memory");
+
+    fs.copyFileSync(snapshotPath, targetSnapshot);
+    fs.copyFileSync(memPath, targetMemory);
+
+    const manifest = {
+      name: templateName,
+      displayName: templateName.charAt(0).toUpperCase() + templateName.slice(1),
+      version: "1.0.0",
+      description: `${templateName} environment template`,
+      tools: [templateName, "sh"],
+      baseImage: "alpine:3.20",
+      createdAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(
+      path.join(templateDir, "template.json"),
+      JSON.stringify(manifest, null, 2),
+    );
+
+    if (templateName === "node") {
+      fs.copyFileSync(snapshotPath, path.join(ARTIFACTS_DIR, "snapshot-exec"));
+      fs.copyFileSync(memPath, path.join(ARTIFACTS_DIR, "mem-exec"));
+      if (!fs.existsSync(path.join(ARTIFACTS_DIR, "rootfs.ext4"))) {
+        fs.copyFileSync(templateRootfs, path.join(ARTIFACTS_DIR, "rootfs.ext4"));
+      }
+    }
+
+    console.log(`\nDone! Template "${templateName}" created at ${templateDir}`);
+  } finally {
+    if (fc) {
+      console.log("Killing Firecracker process...");
+      try {
+        fc.kill("SIGKILL");
+      } catch {}
+    }
+    if (jail) {
+      try {
+        removeJail(jail.instanceDir);
+      } catch (err) {
+        console.warn("Warning: failed to clean up jail directory:", err);
+      }
+    }
+    if (networkInfo) {
+      console.log("Cleaning up snapshot network namespace...");
+      try {
+        await teardownVmNetwork(networkInfo);
+      } catch (err) {
+        console.warn("Warning: failed to clean up network namespace:", err);
+      }
     }
   }
 }

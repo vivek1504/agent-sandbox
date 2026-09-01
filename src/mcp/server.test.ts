@@ -390,7 +390,7 @@ describe("MCP Server Tools", () => {
         arguments: { sessionId: "s1" },
       });
 
-      expect(destroySession).toHaveBeenCalledWith("s1");
+      expect(destroySession).toHaveBeenCalledWith("s1", undefined);
       expect(textOf(result)).toBe("Session destroyed.");
     });
 
@@ -403,6 +403,18 @@ describe("MCP Server Tools", () => {
       });
 
       expect(textOf(result)).toBe("No active session found.");
+    });
+
+    it("handles unauthorized destroySession error", async () => {
+      vi.mocked(destroySession).mockRejectedValue(new Error("Session belongs to another API key"));
+
+      const result = await client.callTool({
+        name: "reset_session",
+        arguments: { sessionId: "forbidden-session" },
+      });
+
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain("Session belongs to another API key");
     });
   });
 });

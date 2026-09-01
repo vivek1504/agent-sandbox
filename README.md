@@ -242,19 +242,65 @@ An MCP server to connect any MCP-compatible AI agent (Claude, GPT, custom agents
 
 ---
 
-## Isolation Model
+## Security Model & Architecture
 
-Every session gets defense-in-depth isolation:
+Agent Sandbox is built around a multi-layered defense-in-depth architecture designed for untrusted multi-tenant AI execution:
 
-| Layer | Mechanism |
-|---|---|
-| **Compute** | Dedicated Firecracker microVM with its own Linux kernel |
-| **Filesystem** | Read-only rootfs + ephemeral tmpfs workspace |
-| **Network** | Per-VM Linux network namespace (veth + TAP + NAT) |
-| **Process** | Firecracker Jailer - chroot, UID/GID separation, `seccomp` |
-| **Resources** | Configurable vCPU, memory, and file descriptor limits |
-| **Lifecycle** | Automatic reaping of idle sessions (default: 30 min TTL) |
-| **Security** | Path traversal prevention on all file operations |
+```
+                                  Untrusted Agent Code
+                                           │
+ ┌─────────────────────────────────────────▼─────────────────────────────────────────┐
+ │ Layer 1: Hardware-Assisted Virtualization (KVM + Firecracker microVM)              │
+ │ • Independent Linux Guest Kernel (no shared kernel attack surface)               │
+ │ • Minimal virtual device model (virtio-net, virtio-block, virtio-vsock only)     │
+ └─────────────────────────────────────────┬─────────────────────────────────────────┘
+                                           │
+ ┌─────────────────────────────────────────▼─────────────────────────────────────────┐
+ │ Layer 2: Host Process Confinement (Firecracker Jailer)                            │
+ │ • Dedicated chroot jail with unprivileged UID/GID (default: 997/982)              │
+ │ • cgroup v2 resource limits (CPU quotas, memory caps, pids.max=256 fork protection│
+ │ • Default Firecracker seccomp filter restricting syscall boundary                 │
+ └─────────────────────────────────────────┬─────────────────────────────────────────┘
+                                           │
+ ┌─────────────────────────────────────────▼─────────────────────────────────────────┐
+ │ Layer 3: Network Isolation & Egress Filtering (Per-VM netns + iptables)           │
+ │ • Dedicated network namespace per VM (veth pair + TAP device + slot-based IP)     │
+ │ • Transparent DNS Interception (PREROUTING DNAT redirecting UDP/TCP 53 to dnsmasq)│
+ │ • Egress policies: domain allow/deny lists, destination CIDR rules, tc rate limits│
+ │ • Anti-spoofing via loose reverse path filtering (rp_filter=2)                    │
+ │ • Host firewall protection: INPUT rules block VM subnets from host-local ports    │
+ │ • Cloud metadata protection: 169.254.169.254 dropped at namespace & host FORWARD │
+ └─────────────────────────────────────────┬─────────────────────────────────────────┘
+                                           │
+ ┌─────────────────────────────────────────▼─────────────────────────────────────────┐
+ │ Layer 4: Multi-Tenant Control Plane & Data Isolation                              │
+ │ • API Key authentication with scope enforcement (exec, admin, metrics)            │
+ │ • Strict multi-tenant session ownership across REST and MCP endpoints            │
+ │ • Ephemeral read-only rootfs + in-guest tmpfs workspace (512MB quota)            │
+ │ • In-guest path traversal protection (enforcing /workspace boundaries)            │
+ └───────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Isolation Matrix
+
+| Threat Vector | Mechanism | Protection Level |
+|---|---|---|
+| **Host Kernel Exploits** | Dedicated guest Linux kernel per session running on KVM | Hardware boundary; escapes require KVM hypervisor or virtio-driver 0-days |
+| **Cross-VM Contamination** | Isolated memory space, separate netns, dedicated jail chroots | Complete memory and network segregation |
+| **Fork Bombs / DoS** | `pids.max=256` via cgroup v2 | Guest process creation capped at the hypervisor boundary |
+| **Memory Exhaustion** | `memory.max` cgroup limit (128 MiB default) | VM process OOM-killed if memory limit exceeded |
+| **CPU Starvation** | `cpu.max` CFS bandwidth quota | Configurable microsecond quota per period |
+| **IP Spoofing** | `rp_filter=2` (loose reverse path filtering) in netns | Spoofed source addresses dropped by Linux network stack |
+| **Host Port Scanning** | Host-level `INPUT` drop rule for `10.0.0.0/16` | VMs cannot access host-local daemons (SSH, Docker, databases) |
+| **Cloud Metadata Theft** | `169.254.169.254/32` dropped at netns & host `FORWARD` | VMs cannot access AWS/GCP/Azure instance metadata endpoints |
+| **DNS Poisoning / Bypass** | Namespace `PREROUTING DNAT` to local `dnsmasq` | Any port 53 query is transparently forced through the domain filter |
+| **Cross-Tenant Session Hijack**| Session `ownerId` binding on REST & MCP tools | Keys cannot read, execute, or reset sessions created by other tenants |
+
+### Security Guarantees & Known Operational Trade-offs
+
+1. **Root Privileges for Host Orchestrator**: The host management daemon requires `CAP_NET_ADMIN` / `root` to configure Linux network namespaces, veth interfaces, and Jailer chroots. The microVM processes themselves run as unprivileged `firecracker:firecracker` (UID 997, GID 982).
+2. **DNS-over-HTTPS (DoH)**: While transparent DNS interception redirects all UDP/TCP port 53 traffic, applications explicitly implementing DNS-over-HTTPS over port 443 can be restricted by enabling destination filtering (`VM_DEST_MODE=allow`) with specific destination CIDRs.
+3. **Single-Host vs Multi-Host**: The current release operates single-host with in-memory session tracking and disk journals; production clustering across multiple hypervisor nodes is planned with distributed consensus (etcd/Redis).
 
 ---
 
@@ -285,7 +331,7 @@ npm run keys revoke <key-id>
 
 ### Authentication Usage
 
-API keys can be supplied via HTTP headers, query parameters, or the SDK:
+API keys are supplied via HTTP headers or the SDK:
 
 ```bash
 # Authorization Header
@@ -428,6 +474,7 @@ All configuration is via environment variables:
 |---|---|---|
 | `PORT` | `3000` | HTTP server port |
 | `LOG_LEVEL` | `debug` | Pino log level |
+| `AUTH_ENABLED` | `true` | Enable API key authentication (`true`, `false`) |
 | `MCP_AUTH_TOKEN` | *(Required)* | Bearer token for MCP SSE endpoint |
 | `FIRECRACKER_BIN` | `/usr/local/bin/firecracker` | Path to Firecracker binary |
 | `FIRECRACKER_JAILER_BIN` | `/usr/local/bin/jailer` | Path to Jailer binary |
@@ -441,7 +488,9 @@ All configuration is via environment variables:
 | `VM_CPU_PERIOD_US` | `100000` | CPU period in microseconds for cgroups |
 | `VM_MEMORY_LIMIT_BYTES` | `134217728` (128 MiB) | Host-side cgroup memory limit in bytes |
 | `VM_NOFILE_LIMIT` | `1024` | Maximum number of open file descriptors for the VM process |
-| `VM_DISK_LIMIT_BYTES` | `536870912` (512 MiB) | Host-side cgroup disk quota limit in bytes |
+| `VM_PIDS_MAX` | `256` | Maximum number of processes per VM cgroup (fork bomb protection) |
+| `STRICT_PERMISSIONS` | `false` | Fail-secure permission verification on jail chroot setup (`true` in prod) |
+| `VM_DISK_LIMIT_BYTES` | `536870912` (512 MiB) | Host-side workspace disk quota limit in bytes |
 | `VM_DNS_MODE` | `none` | Per-VM DNS filtering mode (`none`, `allow`, `deny`) |
 | `VM_DNS_DOMAINS` | `""` | Comma-separated domain filter list (e.g. `*.npmjs.org,github.com`) |
 | `VM_DNS_UPSTREAM` | `8.8.8.8,1.1.1.1` | Comma-separated upstream DNS servers |
@@ -654,6 +703,21 @@ minimal-rootfs/
 
 ---
 
+## Known Limitations & Design Trade-offs
+
+Building a production-grade virtualization platform requires balancing security, operational complexity, and performance:
+
+| Area | Current Implementation | Production Evolution / Trade-off |
+|---|---|---|
+| **Cluster Topology** | Single-host architecture with in-memory session mapping. | Production multi-host requires a distributed coordinator (e.g. etcd / Redis) and session-affinity load balancer. |
+| **Workspace Storage** | Ephemeral `tmpfs` (512MB default) inside guest RAM. | Zero disk I/O latency for ephemeral agent tasks; multi-session persistent state will use network block devices (NBD) or overlayfs snapshot volumes. |
+| **Networking Path** | Linux CLI shell calls (`ip`, `iptables`, `tc`, `dnsmasq`). | Simplifies local debugging and auditability; replacing shell invocations with direct Netlink C/syscall bindings will reduce cold network setup from ~50ms to <10ms. |
+| **IPv6 Egress** | IPv6 traffic dropped (`ip6tables DROP`) inside per-VM network namespaces. | Prevents uninspected IPv6 bypass; IPv6 dual-stack egress filtering planned with `nftables`. |
+| **DNS Redirection** | Local `dnsmasq` proxy inside namespace + port 53 drop. | Transparent DNS interception; DNS-over-HTTPS (DoH) over port 443 can be constrained via destination CIDR whitelisting. |
+| **Disk Limits** | Host filesystem snapshot hardlinks + guest tmpfs quotas. | Block-level IOPS/bandwidth throttling via cgroups v2 `io.max` controller. |
+
+---
+
 ## Roadmap
 
 - [x] Pre-built environment snapshots (Node.js, Python, Go, Custom Dockerfiles)
@@ -662,6 +726,7 @@ minimal-rootfs/
 - [ ] Persistent workspace volumes across sessions
 - [ ] Multi-host execution with session routing
 - [x] streaming for real-time output
+- [ ] Netlink socket-based zero-overhead network configuration
 
 ---
 

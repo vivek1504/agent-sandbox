@@ -101,6 +101,13 @@ describe("ensureSession", () => {
     await ensureSession("brand-new");
     expect(getSession("brand-new")?.vm?.id).toBe("mock-vm");
   });
+
+  it("throws error when accessing a session owned by another key", async () => {
+    createSession("secret-session", "node", "owner-user1");
+    await expect(
+      ensureSession("secret-session", undefined, "owner-user2"),
+    ).rejects.toThrow("Session belongs to another API key");
+  });
 });
 
 describe("sendSessionMessage", () => {

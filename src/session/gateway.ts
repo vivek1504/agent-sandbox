@@ -15,6 +15,8 @@ import { type VmResourceConfig, loadResourceConfig } from "../vm/jailer.js";
 import { type EgressPolicy, loadEgressPolicy } from "../vm/egress-policy.js";
 import { addEntry } from "./manifest.js";
 
+const inFlightCreations = new Map<string, Promise<Vm>>();
+
 export async function ensureSession(
   sessionId: string,
   templateName?: string,
@@ -22,13 +24,23 @@ export async function ensureSession(
   resources: VmResourceConfig = loadResourceConfig(),
   egressPolicy: EgressPolicy = loadEgressPolicy(),
 ): Promise<Vm> {
+  const existingInFlight = inFlightCreations.get(sessionId);
+  if (existingInFlight) {
+    return existingInFlight;
+  }
+
   let session = getSession(sessionId);
-  session = session || createSession(sessionId, templateName, ownerId);
-  if (session.vm) return session.vm;
-  if (session.creation) return session.creation;
+  if (session) {
+    if (session.ownerId && ownerId && session.ownerId !== ownerId) {
+      throw new Error("Session belongs to another API key");
+    }
+    if (session.vm) return session.vm;
+    if (session.creation) return session.creation;
+  } else {
+    session = createSession(sessionId, templateName, ownerId);
+  }
 
-  session.creation = createVm(sessionId, templateName, resources, egressPolicy)
-
+  const creationPromise = createVm(sessionId, templateName, resources, egressPolicy)
     .then(async (vm) => {
       if (getSession(sessionId) !== session || session.state === "destroying") {
         await cleanupVm(sessionId, vm);
@@ -52,9 +64,13 @@ export async function ensureSession(
     })
     .finally(() => {
       session.creation = undefined;
+      inFlightCreations.delete(sessionId);
     });
 
-  return session.creation;
+  session.creation = creationPromise;
+  inFlightCreations.set(sessionId, creationPromise);
+
+  return creationPromise;
 }
 
 export async function sendSessionMessage(

@@ -22,11 +22,6 @@ export function extractKey(req: Request): string | null {
     return header.trim();
   }
 
-  const queryKey = req.query.api_key || req.query.apiKey;
-  if (typeof queryKey === "string" && queryKey.trim()) {
-    return queryKey.trim();
-  }
-
   return null;
 }
 

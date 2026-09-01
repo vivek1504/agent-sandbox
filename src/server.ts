@@ -31,6 +31,9 @@ try {
   if (config.diskLimitBytes !== undefined) {
     vmResourceConfig.set({ resource: "disk_limit_bytes" }, config.diskLimitBytes);
   }
+  if (config.pidsLimit !== undefined) {
+    vmResourceConfig.set({ resource: "pids_limit" }, config.pidsLimit);
+  }
 } catch (err) {
   logger.warn({ err }, "failed to set vm resource metrics");
 }

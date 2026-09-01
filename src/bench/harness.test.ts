@@ -37,6 +37,18 @@ describe("Benchmark UI Harness", () => {
       expect(stripAnsi(bytesStr)).toBe("16.00 MiB");
       expect(bytesStr).toContain(c.gray);
     });
+
+    it("calculates percentiles using linear interpolation", () => {
+      const samples = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+      const stats = computeStats("test_metric", samples);
+
+      expect(stats.min).toBe(10);
+      expect(stats.max).toBe(100);
+      expect(stats.median).toBe(55); // rank = 0.5 * 9 = 4.5 -> avg of 50 and 60 = 55
+      expect(stats.p95).toBeCloseTo(95.5, 1); // rank = 0.95 * 9 = 8.55 -> 90 + 0.55 * 10 = 95.5
+      expect(stats.p99).toBeCloseTo(99.1, 1); // rank = 0.99 * 9 = 8.91 -> 90 + 0.91 * 10 = 99.1
+      expect(stats.p95).not.toBe(stats.p99);
+    });
   });
 
   describe("Integrated Header & Hero Banner", () => {

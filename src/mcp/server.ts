@@ -1,8 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { sendSessionMessage } from "../session/gateway.js";
-import { destroySession } from "../session/session.js";
+import { createSession, destroySession } from "../session/session.js";
 import { listTemplates } from "../vm/templates.js";
+import crypto from "crypto";
 
 export function createMcpServer(ownerId?: string): McpServer {
   const server = new McpServer({
@@ -21,6 +22,7 @@ export function createMcpServer(ownerId?: string): McpServer {
     },
     ({ template }) => {
       const sessionId = crypto.randomUUID();
+      createSession(sessionId, template, ownerId);
 
       return {
         content: [
@@ -209,15 +211,27 @@ export function createMcpServer(ownerId?: string): McpServer {
     "Destroy a session and its VM. The workspace is lost.",
     { sessionId: z.string() },
     async ({ sessionId }) => {
-      const destroyed = await destroySession(sessionId);
-      return {
-        content: [
-          {
-            type: "text",
-            text: destroyed ? "Session destroyed." : "No active session found.",
-          },
-        ],
-      };
+      try {
+        const destroyed = await destroySession(sessionId, ownerId);
+        return {
+          content: [
+            {
+              type: "text",
+              text: destroyed ? "Session destroyed." : "No active session found.",
+            },
+          ],
+        };
+      } catch (err: any) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${err.message}`,
+            },
+          ],
+          isError: true,
+        };
+      }
     },
   );
 

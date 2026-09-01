@@ -288,9 +288,18 @@ export function computeStats(name: string, samples: number[]): TimingResult {
 
 function percentile(sorted: number[], p: number): number {
   if (sorted.length === 0) return 0;
-  const idx = Math.ceil((p / 100) * sorted.length) - 1;
-  const clampedIdx = Math.max(0, Math.min(idx, sorted.length - 1));
-  return sorted[clampedIdx] ?? 0;
+  if (sorted.length === 1) return sorted[0] ?? 0;
+  if (p <= 0) return sorted[0] ?? 0;
+  if (p >= 100) return sorted[sorted.length - 1] ?? 0;
+
+  const rank = (p / 100) * (sorted.length - 1);
+  const lowerIndex = Math.floor(rank);
+  const upperIndex = Math.ceil(rank);
+  const weight = rank - lowerIndex;
+
+  const lower = sorted[lowerIndex] ?? 0;
+  const upper = sorted[upperIndex] ?? lower;
+  return lower + weight * (upper - lower);
 }
 
 export function splitDuration(ms: number): { value: string; unit: string } {

@@ -53,6 +53,7 @@ export function readVsockResponse(
 
           if (msg.type === "stream") {
             if (!expectedId || msg.id === expectedId) {
+              timer.refresh();
               onStreamChunk?.(msg);
             }
             continue;

@@ -16,9 +16,11 @@ export async function cleanupVm(sessionId: string, vm: Vm) {
   );
 
   try {
-    vm.firecrackerProcess.kill();
+    vm.firecrackerProcess.kill("SIGKILL");
     vmLogger.debug({ vmId: vm.id }, "firecracker process killed");
-  } catch {}
+  } catch {
+    // Intentional fallback: process may have already exited
+  }
 
   try {
     if (fs.existsSync(vm.apiSock)) {
@@ -30,7 +32,9 @@ export async function cleanupVm(sessionId: string, vm: Vm) {
       fs.unlinkSync(vm.vsock);
       vmLogger.debug({ path: vm.vsock }, "vsock removed");
     }
-  } catch {}
+  } catch {
+    // Intentional fallback: sockets may have been cleaned up on process exit
+  }
 
   try {
     if (vm.jailDir) {

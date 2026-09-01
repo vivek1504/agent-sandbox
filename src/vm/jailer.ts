@@ -9,7 +9,8 @@ export interface VmResourceConfig {
   cpuPeriodUs: number;
   memoryLimitBytes: number;
   noFileSoftLimit: number;
-  diskLimitBytes?: number
+  diskLimitBytes?: number;
+  pidsLimit?: number;
 }
 
 export const JAILER_BIN =
@@ -61,6 +62,26 @@ function artifactPath(prefix: "snapshot" | "mem", snapshotId: string): string {
   return path.join(ARTIFACTS_DIR, `${prefix}-${snapshotId}`);
 }
 
+function enforceJailPermissions(paths: string[]): void {
+  const isStrict =
+    process.env.NODE_ENV === "production" ||
+    process.env.STRICT_PERMISSIONS === "true";
+
+  try {
+    for (const p of paths) {
+      fs.chmodSync(p, 0o750);
+      fs.chownSync(p, FIRECRACKER_UID, FIRECRACKER_GID);
+    }
+  } catch (err) {
+    if (isStrict) {
+      throw new Error(
+        `Failed to set strict permissions on jail directory in production: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    // In development / test mode, allow fallback for mock filesystems or non-root runners
+  }
+}
+
 export function prepareJail(
   vmId: string,
   template: ResolvedTemplate,
@@ -76,17 +97,7 @@ export function prepareJail(
   fs.mkdirSync(runDir, { recursive: true });
   fs.mkdirSync(artifactsDir, { recursive: true });
 
-  try {
-    fs.chmodSync(dir, 0o777);
-    fs.chmodSync(rootDir, 0o777);
-    fs.chmodSync(runDir, 0o777);
-    fs.chmodSync(artifactsDir, 0o777);
-
-    fs.chownSync(dir, FIRECRACKER_UID, FIRECRACKER_GID);
-    fs.chownSync(rootDir, FIRECRACKER_UID, FIRECRACKER_GID);
-    fs.chownSync(runDir, FIRECRACKER_UID, FIRECRACKER_GID);
-    fs.chownSync(artifactsDir, FIRECRACKER_UID, FIRECRACKER_GID);
-  } catch { }
+  enforceJailPermissions([dir, rootDir, runDir, artifactsDir]);
 
   fs.linkSync(template.snapshotPath, path.join(artifactsDir, "snapshot"));
   fs.linkSync(template.memoryPath, path.join(artifactsDir, "memory"));
@@ -120,6 +131,7 @@ export function detectCgroupVersion(): 1 | 2 {
 export function jailerArgs(vmId: string, netnsPath?: string, resources: VmResourceConfig = loadResourceConfig()): string[] {
   assertSafeName(vmId, "VM ID");
   const cgroupVersion = detectCgroupVersion();
+  const pidsLimit = resources.pidsLimit ?? 256;
   const args = [
     "--id",
     vmId,
@@ -142,7 +154,9 @@ export function jailerArgs(vmId: string, netnsPath?: string, resources: VmResour
       "--cgroup",
       `cpu.max=${resources.cpuQuotaUs} ${resources.cpuPeriodUs}`,
       "--cgroup",
-      `memory.max=${resources.memoryLimitBytes}`
+      `memory.max=${resources.memoryLimitBytes}`,
+      "--cgroup",
+      `pids.max=${pidsLimit}`
     );
   } else {
     args.push(
@@ -151,7 +165,9 @@ export function jailerArgs(vmId: string, netnsPath?: string, resources: VmResour
       "--cgroup",
       `cpu.cpu.cfs_period_us=${resources.cpuPeriodUs}`,
       "--cgroup",
-      `memory.memory.limit_in_bytes=${resources.memoryLimitBytes}`
+      `memory.memory.limit_in_bytes=${resources.memoryLimitBytes}`,
+      "--cgroup",
+      `pids.pids.max=${pidsLimit}`
     );
   }
 
@@ -191,17 +207,7 @@ export function prepareSnapshotCreationJail(
   fs.mkdirSync(runDir, { recursive: true });
   fs.mkdirSync(artifactsDir, { recursive: true });
 
-  try {
-    fs.chmodSync(dir, 0o777);
-    fs.chmodSync(rootDir, 0o777);
-    fs.chmodSync(runDir, 0o777);
-    fs.chmodSync(artifactsDir, 0o777);
-
-    fs.chownSync(dir, FIRECRACKER_UID, FIRECRACKER_GID);
-    fs.chownSync(rootDir, FIRECRACKER_UID, FIRECRACKER_GID);
-    fs.chownSync(runDir, FIRECRACKER_UID, FIRECRACKER_GID);
-    fs.chownSync(artifactsDir, FIRECRACKER_UID, FIRECRACKER_GID);
-  } catch { }
+  enforceJailPermissions([dir, rootDir, runDir, artifactsDir]);
 
   fs.linkSync(
     path.join(ARTIFACTS_DIR, "vmlinux"),
@@ -241,5 +247,6 @@ export function loadResourceConfig(): VmResourceConfig {
     diskLimitBytes: process.env.VM_DISK_LIMIT_BYTES
       ? parseInt(process.env.VM_DISK_LIMIT_BYTES, 10)
       : 512 * 1024 * 1024,
+    pidsLimit: parseInt(process.env.VM_PIDS_MAX ?? "256", 10),
   };
 }
