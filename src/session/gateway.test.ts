@@ -253,4 +253,22 @@ describe("sendSessionMessage", () => {
       }),
     ).rejects.toThrow("Function timeout");
   });
+
+  it("re-provisions VM when existing session VM is marked dead", async () => {
+    const { vm } = prePopulateSession("s-dead");
+    vm.state = "dead" as any;
+
+    const newVm = {
+      id: "new-vm",
+      state: "ready" as const,
+      firecrackerProcess: { kill: vi.fn() },
+      apiSock: "/tmp/new-api.sock",
+      vsock: "/tmp/new-vsock.sock",
+    };
+    vi.mocked(createVm).mockResolvedValue(newVm as any);
+
+    const resultVm = await ensureSession("s-dead");
+    expect(resultVm).toBe(newVm);
+    expect(createVm).toHaveBeenCalled();
+  });
 });

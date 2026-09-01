@@ -14,7 +14,7 @@ export interface Session {
   lastActivityAt: number;
   state: "creating" | "active" | "destroying";
   template?: string | undefined;
-  vm?: Vm;
+  vm?: Vm | undefined;
   creation?: Promise<Vm> | undefined;
 }
 
