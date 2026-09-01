@@ -9,6 +9,7 @@ export interface VmResourceConfig {
   cpuPeriodUs: number;
   memoryLimitBytes: number;
   noFileSoftLimit: number;
+  pidsLimit: number;
 }
 
 export const JAILER_BIN =
@@ -28,6 +29,13 @@ export const FIRECRACKER_GID = parseId(
   process.env.FIRECRACKER_GID ?? "982",
   "FIRECRACKER_GID",
 );
+
+export function isStrictPermissions(): boolean {
+  return (
+    process.env.STRICT_PERMISSIONS === "true" ||
+    process.env.NODE_ENV === "production"
+  );
+}
 
 export interface JailPaths {
   id: string;
@@ -85,7 +93,12 @@ export function prepareJail(
     fs.chownSync(rootDir, FIRECRACKER_UID, FIRECRACKER_GID);
     fs.chownSync(runDir, FIRECRACKER_UID, FIRECRACKER_GID);
     fs.chownSync(artifactsDir, FIRECRACKER_UID, FIRECRACKER_GID);
-  } catch {
+  } catch (err) {
+    if (isStrictPermissions()) {
+      throw new Error(
+        `Failed to set strict permissions on jail directory ${dir}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
     // Best-effort permission setting; may be restricted in unprivileged test environments
   }
 
@@ -143,7 +156,9 @@ export function jailerArgs(vmId: string, netnsPath?: string, resources: VmResour
       "--cgroup",
       `cpu.max=${resources.cpuQuotaUs} ${resources.cpuPeriodUs}`,
       "--cgroup",
-      `memory.max=${resources.memoryLimitBytes}`
+      `memory.max=${resources.memoryLimitBytes}`,
+      "--cgroup",
+      `pids.max=${resources.pidsLimit}`,
     );
   } else {
     args.push(
@@ -152,7 +167,9 @@ export function jailerArgs(vmId: string, netnsPath?: string, resources: VmResour
       "--cgroup",
       `cpu.cpu.cfs_period_us=${resources.cpuPeriodUs}`,
       "--cgroup",
-      `memory.memory.limit_in_bytes=${resources.memoryLimitBytes}`
+      `memory.memory.limit_in_bytes=${resources.memoryLimitBytes}`,
+      "--cgroup",
+      `pids.max=${resources.pidsLimit}`,
     );
   }
 
@@ -202,7 +219,12 @@ export function prepareSnapshotCreationJail(
     fs.chownSync(rootDir, FIRECRACKER_UID, FIRECRACKER_GID);
     fs.chownSync(runDir, FIRECRACKER_UID, FIRECRACKER_GID);
     fs.chownSync(artifactsDir, FIRECRACKER_UID, FIRECRACKER_GID);
-  } catch {
+  } catch (err) {
+    if (isStrictPermissions()) {
+      throw new Error(
+        `Failed to set strict permissions on snapshot jail directory ${dir}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
     // Best-effort permission setting; may be restricted in unprivileged test environments
   }
 
@@ -241,5 +263,6 @@ export function loadResourceConfig(): VmResourceConfig {
       10,
     ),
     noFileSoftLimit: parseInt(process.env.VM_NOFILE_LIMIT ?? "1024", 10),
+    pidsLimit: parseInt(process.env.VM_PIDS_LIMIT ?? "256", 10),
   };
 }
