@@ -266,6 +266,57 @@ Every session gets defense-in-depth isolation:
 
 ---
 
+## Security Model & Trust Boundaries
+
+The platform operates on a defense-in-depth model with explicit trust boundaries:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  TRUSTED: Host Infrastructure & Linux Kernel                │
+│  • KVM hypervisor kernel module                             │
+│  • Express HTTP & MCP control plane                         │
+│  • Linux network namespaces, veth routing, host iptables    │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+               Virtualization Boundary (KVM / virtio)
+                               │
+┌──────────────────────────────▼──────────────────────────────┐
+│  SEMI-TRUSTED: Firecracker VMM                              │
+│  • Jailer chroot (0o750 permissions, unprivileged UID/GID)  │
+│  • Seccomp syscall filtering                                │
+│  • Cgroups v2 limits (CPU quota, memory max, pids.max=256)  │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                 vsock IPC / Isolated Netns
+                               │
+┌──────────────────────────────▼──────────────────────────────┐
+│  UNTRUSTED: MicroVM Guest & Executed Code                   │
+│  • Guest Linux kernel & agent processes                     │
+│  • /workspace (tmpfs 512MB RAM disk)                        │
+│  • Egress network traffic (subject to DNS/IP/Port filters)  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Threat Mitigations
+
+| Threat Vector | Mitigation Strategy | Implementation |
+|---|---|---|
+| **Host Escape** | Hardware-assisted virtualization + Jailer confinement | KVM hypervisor boundary, unprivileged UID/GID, chroot confinement, default seccomp profile |
+| **IP Spoofing** | RFC 3704 Reverse Path Filtering | `net.ipv4.conf.tap0.rp_filter=2` (loose mode) enforced inside every network namespace |
+| **Host Port Scanning** | Host-level firewall isolation | `iptables -I INPUT -s 10.0.0.0/16 -j DROP` explicitly blocks guest VMs from connecting to host daemon ports |
+| **Cloud Metadata Theft** | IMDS endpoint blocking | `169.254.169.254/32` dropped at both per-VM namespace egress and host FORWARD chains |
+| **DNS Bypass & Tampering** | Transparent DNS interception & domain allow/deny lists | `PREROUTING REDIRECT` transparently forwards UDP/TCP port 53 to local `dnsmasq`, while unmanaged direct egress on port 53 is dropped |
+| **Fork Bombs & OOM** | Kernel cgroup resource limits | `pids.max=256`, `memory.max=128MB` (configurable), and CPU quota throttling |
+| **Cross-Tenant Hijack** | Scoped API keys & session ownership | Strict ownership verification in REST API, MCP tool invocations, and session destruction |
+| **Path Traversal** | Normalized path boundary validation | `isInsideWorkspace` validates all file read/write/list operations stay within `/workspace` |
+
+### Known Limitations & Production Evolution
+- **Single-Host Control Plane**: Session state is managed locally on each host. Multi-host horizontal clustering requires an external coordinator (e.g. etcd / Redis).
+- **DNS-over-HTTPS (DoH)**: Direct DNS egress on port 53 is blocked/intercepted, but guest applications initiating TLS connections to DoH resolvers on port 443 can bypass DNS filtering unless destination IP allowlisting (`VM_DEST_MODE=allow`) is configured.
+- **Syscall Networking Overhead**: Networking utilizes Linux CLI utilities (`ip`, `iptables`). Replacing shell invocations with direct Netlink syscall bindings will reduce setup latency from ~50ms to <10ms.
+
+---
+
 ## Authentication & Key Management
 
 Agent Sandbox supports API key-based authentication with scope-based access control (`exec`, `admin`, `metrics`) and per-key rate limiting.
