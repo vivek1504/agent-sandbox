@@ -404,5 +404,17 @@ describe("MCP Server Tools", () => {
 
       expect(textOf(result)).toBe("No active session found.");
     });
+
+    it("reports error when destroySession fails due to ownership check", async () => {
+      vi.mocked(destroySession).mockRejectedValue(new Error("Session belongs to another owner"));
+
+      const result = await client.callTool({
+        name: "reset_session",
+        arguments: { sessionId: "s1" },
+      });
+
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain("Session belongs to another owner");
+    });
   });
 });

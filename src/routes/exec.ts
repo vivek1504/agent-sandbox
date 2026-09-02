@@ -14,7 +14,9 @@ function validateSessionId(sessionId: string, res: any): boolean {
 }
 
 function mapErrorToStatus(err: any): number {
+  if (err?.statusCode) return err.statusCode;
   const msg = err?.message || "";
+  if (msg.includes("belongs to another") || msg.includes("Forbidden")) return 403;
   if (msg.includes("Path traversal") || msg.includes("Invalid")) return 400;
   if (msg.includes("not found") || msg.includes("Unknown template")) return 404;
   if (msg.includes("timeout") || msg.includes("Timeout")) return 504;
@@ -188,8 +190,13 @@ execRouter.delete("/:sessionId", async (req, res) => {
   const { sessionId } = req.params;
   if (!validateSessionId(sessionId, res)) return;
 
-  const destroyed = await destroySession(sessionId);
-  res.json({ destroyed });
+  try {
+    const ownerId = req.apiKey?.scopes.includes("admin") ? undefined : req.apiKey?.id;
+    const destroyed = ownerId ? await destroySession(sessionId, ownerId) : await destroySession(sessionId);
+    res.json({ destroyed });
+  } catch (err: any) {
+    res.status(mapErrorToStatus(err)).json({ error: err.message });
+  }
 });
 
 execRouter.get("/", (req, res) => {

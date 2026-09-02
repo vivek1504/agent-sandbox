@@ -209,15 +209,27 @@ export function createMcpServer(ownerId?: string): McpServer {
     "Destroy a session and its VM. The workspace is lost.",
     { sessionId: z.string() },
     async ({ sessionId }) => {
-      const destroyed = await destroySession(sessionId);
-      return {
-        content: [
-          {
-            type: "text",
-            text: destroyed ? "Session destroyed." : "No active session found.",
-          },
-        ],
-      };
+      try {
+        const destroyed = ownerId ? await destroySession(sessionId, ownerId) : await destroySession(sessionId);
+        return {
+          content: [
+            {
+              type: "text",
+              text: destroyed ? "Session destroyed." : "No active session found.",
+            },
+          ],
+        };
+      } catch (err: any) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to destroy session: ${err.message}`,
+            },
+          ],
+          isError: true,
+        };
+      }
     },
   );
 
