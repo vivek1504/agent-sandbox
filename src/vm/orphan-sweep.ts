@@ -106,7 +106,7 @@ export function sweepCgroupDirectories(): void {
         if (!entry.isDirectory()) continue;
         const fullPath = path.join(parentDir, entry.name);
         try {
-          fs.rmSync(fullPath, { recursive: true, force: true });
+          fs.rmdirSync(fullPath);
           vmLogger.debug({ path: fullPath }, "removed orphaned cgroup");
         } catch (err) {
           vmLogger.warn({ path: fullPath, err }, "failed to remove orphaned cgroup");
