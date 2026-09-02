@@ -9,32 +9,49 @@ import { cleanupStaleNetworkResources } from "./networking.js";
 export function sweepOrphanedResources(): void {
   vmLogger.info("starting orphan resource sweep");
 
-  killOrphanedProcesses("firecracker");
-  killOrphanedProcesses("jailer");
-
-  sweepJailDirectories();
-
-  cleanupStaleNetworkResources();
-
-  sweepCgroupDirectories();
+  let ownedPids: Set<number> | undefined;
+  let ownedInstanceIds: Set<string> | undefined;
+  let ownedNamespaces: Set<string> | undefined;
 
   try {
     const staleEntries = loadManifest();
     if (staleEntries.length > 0) {
+      ownedPids = new Set(staleEntries.map((e) => e.pid).filter((p): p is number => typeof p === "number"));
+      ownedInstanceIds = new Set(
+        staleEntries.map((e) => e.vmId || path.basename(e.jailDir)).filter((id): id is string => Boolean(id)),
+      );
+      ownedNamespaces = new Set(
+        staleEntries.map((e) => e.nsName || e.netns).filter((ns): ns is string => Boolean(ns)),
+      );
+
       vmLogger.info(
         { count: staleEntries.length, sessions: staleEntries.map((e) => e.sessionId) },
-        "clearing stale manifest entries from previous run",
+        "reconciling orphaned resources from manifest entries",
       );
-      clearManifest();
     }
   } catch (err) {
-    vmLogger.warn({ err }, "failed to read or clear stale manifest during sweep");
+    vmLogger.warn({ err }, "failed to read stale manifest during sweep");
+  }
+
+  killOrphanedProcesses("firecracker", ownedPids);
+  killOrphanedProcesses("jailer", ownedPids);
+
+  sweepJailDirectories(ownedInstanceIds);
+
+  cleanupStaleNetworkResources(ownedNamespaces);
+
+  sweepCgroupDirectories(ownedInstanceIds);
+
+  try {
+    clearManifest();
+  } catch (err) {
+    vmLogger.warn({ err }, "failed to clear manifest during sweep");
   }
 
   vmLogger.info("orphan resource sweep complete");
 }
 
-export function killOrphanedProcesses(name: string): void {
+export function killOrphanedProcesses(name: string, ownedPids?: Set<number>): void {
   try {
     const pids = execSync(`pgrep -x ${name}`, { encoding: "utf-8" })
       .trim()
@@ -47,6 +64,11 @@ export function killOrphanedProcesses(name: string): void {
     for (const pidStr of pids) {
       const pid = Number(pidStr);
       if (pid === currentPid || isNaN(pid)) continue;
+
+      if (ownedPids && !ownedPids.has(pid)) {
+        vmLogger.debug({ pid, process: name }, "skipping process not owned by service manifest");
+        continue;
+      }
 
       try {
         process.kill(pid, "SIGKILL");
@@ -64,12 +86,15 @@ export function killOrphanedProcesses(name: string): void {
   }
 }
 
-export function sweepJailDirectories(): void {
+export function sweepJailDirectories(ownedInstanceIds?: Set<string>): void {
   const jailParent = path.join(JAIL_BASE_DIR, "firecracker");
   if (!fs.existsSync(jailParent)) return;
 
   try {
-    const dirs = fs.readdirSync(jailParent);
+    let dirs = fs.readdirSync(jailParent);
+    if (ownedInstanceIds) {
+      dirs = dirs.filter((dir) => ownedInstanceIds.has(dir));
+    }
     if (dirs.length === 0) return;
 
     vmLogger.info(
@@ -91,7 +116,7 @@ export function sweepJailDirectories(): void {
   }
 }
 
-export function sweepCgroupDirectories(): void {
+export function sweepCgroupDirectories(ownedInstanceIds?: Set<string>): void {
   const cgroupParents = [
     "/sys/fs/cgroup/firecracker",
     "/sys/fs/cgroup/cpu/firecracker",
@@ -104,6 +129,7 @@ export function sweepCgroupDirectories(): void {
       const entries = fs.readdirSync(parentDir, { withFileTypes: true });
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
+        if (ownedInstanceIds && !ownedInstanceIds.has(entry.name)) continue;
         const fullPath = path.join(parentDir, entry.name);
         try {
           fs.rmdirSync(fullPath);

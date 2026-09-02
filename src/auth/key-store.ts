@@ -117,12 +117,31 @@ export function verifyKey(rawKey: string): ResolvedKey | null {
   };
 }
 
+let saveTimer: NodeJS.Timeout | null = null;
+const SAVE_DEBOUNCE_MS = 1000;
+
+export function scheduleSave(): void {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    saveKeys();
+  }, SAVE_DEBOUNCE_MS);
+}
+
+export function flushKeys(): void {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    saveKeys();
+  }
+}
+
 export function touchKey(id: string): void {
   if (!loaded) loadKeys();
   const record = keys.find((k) => k.id === id);
   if (record) {
     record.lastUsedAt = Date.now();
-    saveKeys();
+    scheduleSave();
   }
 }
 
@@ -163,6 +182,10 @@ export function rotateKey(id: string): { record: ApiKeyRecord; rawKey: string } 
 }
 
 export function clearKeysStore(): void {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
   keys = [];
   loaded = false;
 }

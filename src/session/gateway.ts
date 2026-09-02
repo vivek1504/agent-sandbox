@@ -24,16 +24,17 @@ export async function ensureSession(
   resources: VmResourceConfig = loadResourceConfig(),
   egressPolicy: EgressPolicy = loadEgressPolicy(),
 ): Promise<Vm> {
+  let session = getSession(sessionId);
+  if (session && session.ownerId && ownerId && session.ownerId !== ownerId) {
+    throw new Error("Session belongs to another API key");
+  }
+
   const existingInFlight = inFlightCreations.get(sessionId);
   if (existingInFlight) {
     return existingInFlight;
   }
 
-  let session = getSession(sessionId);
   if (session) {
-    if (session.ownerId && ownerId && session.ownerId !== ownerId) {
-      throw new Error("Session belongs to another API key");
-    }
     if (session.vm) return session.vm;
     if (session.creation) return session.creation;
   } else {
@@ -53,9 +54,11 @@ export async function ensureSession(
           sessionId,
           ownerId: session.ownerId,
           vmId: vm.id,
+          pid: vm.firecrackerProcess?.pid,
           createdAt: session.createdAt,
           slot: vm.networkInfo.slot,
           nsName: vm.networkInfo.nsName,
+          netns: vm.networkInfo.nsName,
           jailDir: vm.jailDir,
           templateName,
         });

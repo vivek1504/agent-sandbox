@@ -6,9 +6,11 @@ export interface ManifestEntry {
   sessionId: string;
   ownerId?: string | undefined;
   vmId: string;
+  pid?: number | undefined;
   createdAt: number;
   slot: number;
   nsName: string;
+  netns?: string | undefined;
   jailDir: string;
   templateName?: string | undefined;
 }

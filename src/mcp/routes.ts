@@ -4,14 +4,19 @@ import { createMcpServer } from "./server.js";
 
 export const mcpRouter = Router();
 
-const transports = new Map<string, SSEServerTransport>();
+interface OwnedTransport {
+  transport: SSEServerTransport;
+  ownerId?: string | undefined;
+}
+
+const transports = new Map<string, OwnedTransport>();
 
 mcpRouter.get("/", async (req, res) => {
   const mcpSessionId = req.id as string;
   const ownerId = req.apiKey?.id;
 
   const transport = new SSEServerTransport(`/mcp/messages?mcpSessionId=${mcpSessionId}`, res);
-  transports.set(mcpSessionId, transport);
+  transports.set(mcpSessionId, { transport, ownerId });
 
   const server = createMcpServer(ownerId);
   await server.connect(transport);
@@ -24,13 +29,18 @@ mcpRouter.get("/", async (req, res) => {
 
 mcpRouter.post("/messages", async (req, res) => {
   const mcpSessionId = req.query.mcpSessionId as string;
-  const transport = transports.get(mcpSessionId);
+  const entry = transports.get(mcpSessionId);
 
-  if (!transport) {
+  if (!entry) {
     res.status(404).json({ error: "Session not found or disconnected" });
     return;
   }
 
-  await transport.handlePostMessage(req, res);
+  if (entry.ownerId && req.apiKey?.id && entry.ownerId !== req.apiKey.id) {
+    res.status(403).json({ error: "Session belongs to another user" });
+    return;
+  }
+
+  await entry.transport.handlePostMessage(req, res);
 });
 

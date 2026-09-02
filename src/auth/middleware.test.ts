@@ -112,5 +112,38 @@ describe("Auth Middleware", () => {
       expect(res.status).toHaveBeenCalledWith(401);
       expect(res.json).toHaveBeenCalledWith({ error: "API key required" });
     });
+
+    it("grants legacy MCP token only exec scope with rate limiting", () => {
+      process.env.MCP_AUTH_TOKEN = "legacy-secret-token";
+      const req = {
+        headers: { authorization: "Bearer legacy-secret-token" },
+        query: {},
+      } as any;
+      const res = {
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn(),
+      } as any;
+      const next = vi.fn();
+
+      const middleware = authMiddleware("exec");
+      middleware(req, res, next);
+
+      expect(next).toHaveBeenCalled();
+      expect(req.apiKey).toBeDefined();
+      expect(req.apiKey.id).toBe("legacy_mcp");
+      expect(req.apiKey.scopes).toEqual(["exec"]);
+      expect(req.apiKey.rateLimit).toBe(100);
+
+      // Verify it cannot access admin scope
+      const adminNext = vi.fn();
+      const adminRes = {
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn(),
+      } as any;
+      const adminMiddleware = authMiddleware("admin");
+      adminMiddleware(req, adminRes, adminNext);
+      expect(adminNext).not.toHaveBeenCalled();
+      expect(adminRes.status).toHaveBeenCalledWith(403);
+    });
   });
 });

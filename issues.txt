@@ -1,0 +1,233 @@
+🔴 Critical / High-priority issues
+
+1	MCP message authentication	GET /mcp is authenticated, but POST /mcp/messages is not. An unauthenticated caller can potentially submit messages using an existing MCP session ID.	Bind mcpSessionId → ownerId, authenticate /messages, and verify requester owns the transport.
+2	ensureSession() ownership race	The code checks inFlightCreations before checking ownership. A second user can receive an existing creation promise without passing the ownership check.	Check ownership before returning an in-flight creation promise. Add concurrent-owner regression test.
+3	Global orphan process killing	Startup cleanup uses pgrep -x firecracker / pgrep -x jailer and kills matching processes. On a shared host, this can kill unrelated workloads.	Track service-owned PIDs/cgroups/manifests and only reconcile resources belonging to this service.
+4	Build isn't reproducible	package.json doesn't properly declare required build dependencies such as typescript / @types/node. Clean environments fail.	Add all dependencies, especially typescript and @types/node; make npm ci && npm test && npm run build work from a clean clone.
+5	MCP token is overprivileged	MCP_AUTH_TOKEN appears to have exec, admin, and metrics privileges.	Remove the legacy path or give the MCP credential only the permissions it actually needs.
+6	Firecracker death doesn't fully clean resources	Firecracker can become dead while network namespace, jail, slot, manifest, etc. remain.	Make process death trigger idempotent full resource reconciliation/cleanup.
+
+
+These are the six issues I'd consider most important before applying.
+
+
+---
+
+🟠 Medium-priority security / isolation issues
+
+7. Filesystem symlink escape
+
+Your lexical path validation protects against:
+
+../../etc/passwd
+
+but not necessarily:
+
+/workspace/link → /etc
+
+Then:
+
+read_file("link/passwd")
+
+could traverse outside the intended workspace.
+
+Fix: use descriptor-relative operations / openat()-style semantics with O_NOFOLLOW, or another symlink-safe filesystem boundary.
+
+
+---
+
+8. Process timeout doesn't kill the entire process tree
+
+The direct child is handled better now, so the original timeout bug is fixed.
+
+But:
+
+shell
+ ├── python
+ ├── sleep
+ └── child process
+
+can leave descendants alive.
+
+Fix: launch execution in a dedicated process group and terminate the entire group.
+
+
+---
+
+9. REST API validation is weaker than MCP
+
+REST accepts things like:
+
+command
+args
+cwd
+env
+timeout
+template
+
+with insufficient schema validation.
+
+Potential problems include:
+
+enormous command strings
+
+too many arguments
+
+huge environment
+
+invalid timeout
+
+oversized cwd
+
+invalid template
+
+oversized request body
+
+
+Fix: use Zod or equivalent validation for REST too.
+
+
+---
+
+10. touchKey() performs disk writes on requests
+
+Authentication apparently updates lastUsedAt, which causes persistence.
+
+That means an authenticated request can lead to:
+
+request
+ ↓
+memory update
+ ↓
+JSON serialization
+ ↓
+filesystem write
+ ↓
+rename
+
+on the hot path.
+
+Fix: update memory immediately and batch/asynchronously persist usage metadata.
+---
+
+🟠 Lifecycle issues
+
+15. Dead VM cleanup is incomplete
+
+Current conceptual path:
+
+Firecracker dies
+      ↓
+state = DEAD
+      ↓
+socket destroyed
+
+But potentially:
+
+netns       remains
+veth        remains
+jail        remains
+slot        remains
+manifest    remains
+
+Fix:
+
+Firecracker dies
+       ↓
+mark DEAD
+       ↓
+cleanup network
+       ↓
+remove jail
+       ↓
+release slot
+       ↓
+remove manifest
+       ↓
+finalize session
+
+Make cleanup idempotent.
+
+
+---
+
+16. Orphan recovery isn't ownership-aware
+
+This overlaps with #3 but is worth separating conceptually.
+
+The recovery system needs to reconcile:
+
+manifest
+   ↕
+jail
+   ↕
+cgroup
+   ↕
+Firecracker PID
+   ↕
+network namespace
+   ↕
+veth/TAP
+
+rather than assuming everything matching a process name belongs to your service.
+
+---
+
+20. Cleanup benchmark measures SIGKILL issuance, not cleanup
+
+Something like:
+
+fc.kill("SIGKILL")
+→ 11.8 µs
+
+means approximately:
+
+> time to issue the signal
+
+
+
+not:
+
+> time until Firecracker has exited and all resources are cleaned up.
+
+
+
+Fix: wait for process termination and resource cleanup before measuring teardown latency.
+---
+
+🟢 Repository quality issues
+
+28. dist/ is committed
+
+You have:
+
+src/
+dist/
+
+in the repository.
+
+Usually, for a source repository:
+
+dist/
+
+and build it in CI.
+
+This avoids source/build divergence.
+
+
+---
+
+29. Missing clean-build dependency declarations
+
+This overlaps with #4 but is worth treating as a repository hygiene issue:
+
+Make sure the repository itself declares everything required to build/test.
+
+A reviewer should be able to:
+
+git clone ...
+npm ci
+npm test
+npm run build
+
+with no globally installed TypeScript or hidden dependencies.

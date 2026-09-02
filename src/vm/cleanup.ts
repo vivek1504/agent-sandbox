@@ -16,8 +16,10 @@ export async function cleanupVm(sessionId: string, vm: Vm) {
   );
 
   try {
-    vm.firecrackerProcess.kill("SIGKILL");
-    vmLogger.debug({ vmId: vm.id }, "firecracker process killed");
+    if (vm.firecrackerProcess && (vm.firecrackerProcess.exitCode == null && vm.firecrackerProcess.signalCode == null)) {
+      vm.firecrackerProcess.kill("SIGKILL");
+      vmLogger.debug({ vmId: vm.id }, "firecracker process killed");
+    }
   } catch {
     // Intentional fallback: process may have already exited
   }

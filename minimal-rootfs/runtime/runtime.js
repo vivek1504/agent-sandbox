@@ -8,7 +8,27 @@ const WORKSPACE_PREFIX = WORKSPACE + path.sep;
 const activeProcesses = new Map();
 
 function isInsideWorkspace(absPath) {
-  return absPath === WORKSPACE || absPath.startsWith(WORKSPACE_PREFIX);
+  if (absPath !== WORKSPACE && !absPath.startsWith(WORKSPACE_PREFIX)) {
+    return false;
+  }
+  try {
+    if (fs.existsSync(absPath)) {
+      const real = fs.realpathSync(absPath);
+      return real === WORKSPACE || real.startsWith(WORKSPACE_PREFIX);
+    }
+    // Path doesn't exist yet (e.g. for write_file) — verify existing ancestor directory
+    let curr = absPath;
+    while (curr && curr !== "/" && !fs.existsSync(curr)) {
+      curr = path.dirname(curr);
+    }
+    if (fs.existsSync(curr)) {
+      const realAncestor = fs.realpathSync(curr);
+      return realAncestor === WORKSPACE || realAncestor.startsWith(WORKSPACE_PREFIX);
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const handlers = {
@@ -76,6 +96,7 @@ function handleExecute(socket, msg) {
     cwd: workDir,
     env: { ...process.env, HOME: WORKSPACE, ...env },
     stdio: ["ignore", "pipe", "pipe"],
+    detached: true,
   });
 
   activeProcesses.set(id, proc);
@@ -104,9 +125,19 @@ function handleExecute(socket, msg) {
   });
 
   const timer = setTimeout(() => {
-    proc.kill("SIGTERM");
+    try {
+      if (proc.pid) process.kill(-proc.pid, "SIGTERM");
+    } catch {
+      try { proc.kill("SIGTERM"); } catch {}
+    }
     setTimeout(() => {
-      if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL");
+      if (proc.exitCode === null && proc.signalCode === null) {
+        try {
+          if (proc.pid) process.kill(-proc.pid, "SIGKILL");
+        } catch {
+          try { proc.kill("SIGKILL"); } catch {}
+        }
+      }
     }, 5000);
   }, timeout);
 
@@ -234,9 +265,19 @@ function handleCancel(socket, msg) {
     return sendError(socket, id, "No running process with this id", -1);
   }
 
-  proc.kill("SIGTERM");
+  try {
+    if (proc.pid) process.kill(-proc.pid, "SIGTERM");
+  } catch {
+    try { proc.kill("SIGTERM"); } catch {}
+  }
   setTimeout(() => {
-    if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL");
+    if (proc.exitCode === null && proc.signalCode === null) {
+      try {
+        if (proc.pid) process.kill(-proc.pid, "SIGKILL");
+      } catch {
+        try { proc.kill("SIGKILL"); } catch {}
+      }
+    }
   }, 5000);
 }
 

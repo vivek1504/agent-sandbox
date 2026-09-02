@@ -108,6 +108,16 @@ describe("ensureSession", () => {
       ensureSession("secret-session", undefined, "owner-user2"),
     ).rejects.toThrow("Session belongs to another API key");
   });
+
+  it("throws error when concurrent request tries to access in-flight creation of another owner", async () => {
+    // Start session creation with owner-user1
+    const p1 = ensureSession("concurrent-race-session", undefined, "owner-user1");
+    // Concurrently try to access with owner-user2
+    await expect(
+      ensureSession("concurrent-race-session", undefined, "owner-user2"),
+    ).rejects.toThrow("Session belongs to another API key");
+    await p1;
+  });
 });
 
 describe("sendSessionMessage", () => {

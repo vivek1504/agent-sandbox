@@ -99,5 +99,27 @@ describe("MCP Routes", () => {
       expect(res.status).toBe(404);
       expect(res.body.error).toContain("not found");
     });
+
+    it("prevents cross-user session hijacking with 403", async () => {
+      const { createKey } = await import("../auth/key-store.js");
+      const user1 = createKey("user-1", ["exec"]);
+      const user2 = createKey("user-2", ["exec"]);
+
+      // User 1 establishes an MCP session
+      const getRes = await supertest(app)
+        .get("/mcp/")
+        .set("Authorization", `Bearer ${user1.rawKey}`)
+        .set("X-Request-Id", "mcp-session-owned-1");
+      expect(getRes.status).toBe(200);
+
+      // User 2 attempts to post message to User 1's MCP session
+      const hijackRes = await supertest(app)
+        .post("/mcp/messages?mcpSessionId=mcp-session-owned-1")
+        .set("Authorization", `Bearer ${user2.rawKey}`)
+        .send({});
+
+      expect(hijackRes.status).toBe(403);
+      expect(hijackRes.body.error).toContain("Session belongs to another user");
+    });
   });
 });

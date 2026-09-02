@@ -1,9 +1,37 @@
 import { Router } from "express";
+import { z } from "zod";
 import { sendSessionMessage, ensureSession } from "../session/gateway.js";
 import { destroySession, getSession, getAllSessions } from "../session/session.js";
 import { listTemplates } from "../vm/templates.js";
 
 export const execRouter = Router();
+
+const executeSchema = z.object({
+  command: z.string().min(1, "command is required and must be a string").max(4096),
+  args: z.array(z.string().max(4096)).max(100).optional(),
+  cwd: z.string().max(512).optional(),
+  env: z
+    .record(z.string().max(8192))
+    .optional()
+    .refine((e) => !e || Object.keys(e).length <= 64, "Too many environment variables"),
+  timeout: z.number().int().min(1).max(300_000).optional(),
+  template: z.string().max(64).optional(),
+});
+
+const writeFileSchema = z.object({
+  path: z.string().min(1, "path and content required and must be strings").max(1024),
+  content: z.string().max(10_485_760),
+  mode: z.number().int().optional(),
+});
+
+const readFileSchema = z.object({
+  path: z.string().min(1, "path query param required and must be a string").max(1024),
+});
+
+const listFilesSchema = z.object({
+  path: z.string().max(1024).optional(),
+  recursive: z.enum(["true", "false"]).optional(),
+});
 
 execRouter.get("/templates", (_req, res) => {
   res.json({ templates: listTemplates() });
@@ -22,11 +50,15 @@ function handleRouteError(res: any, err: any) {
 
 execRouter.post("/:sessionId/execute", async (req, res) => {
   const { sessionId } = req.params;
-  const { command, args, cwd, env, timeout, template } = req.body;
-
-  if (!command || typeof command !== "string") {
-    return res.status(400).json({ error: "command is required and must be a string", code: "BAD_REQUEST" });
+  const parsed = executeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: parsed.error.issues[0]?.message || "command is required and must be a string",
+      details: parsed.error.issues,
+      code: "BAD_REQUEST",
+    });
   }
+  const { command, args, cwd, env, timeout, template } = parsed.data;
 
   const wantsNdjson =
     req.headers.accept === "application/x-ndjson" ||
@@ -86,11 +118,15 @@ execRouter.post("/:sessionId/execute", async (req, res) => {
 
 execRouter.post("/:sessionId/write", async (req, res) => {
   const { sessionId } = req.params;
-  const { path, content, mode } = req.body;
-
-  if (!path || typeof path !== "string" || content === undefined || typeof content !== "string") {
-    return res.status(400).json({ error: "path and content required and must be strings", code: "BAD_REQUEST" });
+  const parsed = writeFileSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: parsed.error.issues[0]?.message || "path and content required and must be strings",
+      details: parsed.error.issues,
+      code: "BAD_REQUEST",
+    });
   }
+  const { path, content, mode } = parsed.data;
 
   try {
     const contentBase64 = Buffer.from(content, "utf8").toString("base64");
@@ -110,11 +146,15 @@ execRouter.post("/:sessionId/write", async (req, res) => {
 
 execRouter.get("/:sessionId/read", async (req, res) => {
   const { sessionId } = req.params;
-  const { path } = req.query;
-
-  if (!path || typeof path !== "string") {
-    return res.status(400).json({ error: "path query param required and must be a string", code: "BAD_REQUEST" });
+  const parsed = readFileSchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: parsed.error.issues[0]?.message || "path query param required and must be a string",
+      details: parsed.error.issues,
+      code: "BAD_REQUEST",
+    });
   }
+  const { path } = parsed.data;
 
   try {
     const result = await sendSessionMessage(
@@ -137,7 +177,15 @@ execRouter.get("/:sessionId/read", async (req, res) => {
 
 execRouter.get("/:sessionId/files", async (req, res) => {
   const { sessionId } = req.params;
-  const { path, recursive } = req.query;
+  const parsed = listFilesSchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: parsed.error.issues[0]?.message || "invalid query parameters",
+      details: parsed.error.issues,
+      code: "BAD_REQUEST",
+    });
+  }
+  const { path, recursive } = parsed.data;
 
   try {
     const result = await sendSessionMessage(

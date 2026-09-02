@@ -46,11 +46,19 @@ export async function runCleanupSuite(opts: BenchSuiteOptions): Promise<Benchmar
     const client = createFcClient(jail.apiSocket);
     await restoreVm(client, jail);
 
-    // Step 1: fc_process_kill
-    const { durationMs: killMs } = await time(() => {
+    // Step 1: fc_process_kill (time until process has fully terminated)
+    const { durationMs: killMs } = await time(async () => {
       try {
         fc.kill("SIGKILL");
       } catch {}
+      await new Promise<void>((resolve) => {
+        if (fc.exitCode !== null && fc.signalCode !== null) return resolve();
+        const timer = setTimeout(resolve, 5000);
+        fc.once("exit", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
     });
 
     // Step 2: jail_directory_rmrf
