@@ -1,24 +1,32 @@
 {
   "name": "agent-sandbox",
   "version": "1.0.0",
-  "description": "",
+  "description": "Secure, hardware-isolated execution sandbox for AI agents using Firecracker microVMs",
   "main": "server.js",
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "vitest run src/vm/vm-e2e.test.ts",
     "start": "tsc -b && node dist/server.js",
     "mcp": "tsc -b && node dist/mcp/stdio.js",
     "keys": "tsc -b && node dist/auth/cli.js",
     "bench": "tsc -b && sudo node dist/bench/index.js"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "firecracker",
+    "microvm",
+    "sandbox",
+    "ai-agents",
+    "jailer",
+    "vsock",
+    "kvm"
+  ],
+  "author": "Vivek Jadhav",
   "license": "ISC",
   "type": "module",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@types/express": "^5.0.6",
     "axios": "^1.13.6",
     "express": "^5.2.1",
     "netlink": "^0.3.0",
@@ -27,6 +35,7 @@
     "prom-client": "^15.1.3"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/supertest": "^7.2.0",
     "@vitest/coverage-v8": "^4.1.7",
     "supertest": "^7.2.2",

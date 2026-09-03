@@ -13,7 +13,7 @@ AI agents need to *do things*: write code and run it, install libraries, curl en
 **Agent Sandbox** solves this by giving each agent session a dedicated Firecracker microVM:
 
 - **Hardware level isolation** - each session runs in its own Linux kernel. A misbehaving agent cannot escape to the host or affect other sessions.
-- **Millisecond startup** - pre-snapshotted VM state restores in 1–5ms, so agents don't wait for environments to spin up.
+- **Millisecond snapshot restore** - pre-snapshotted microVM state restores in 1–5ms (total end-to-end cold start is ~90ms including network namespace, veth, TAP, and iptables egress provisioning).
 - **Full Linux environment** - agents get a real filesystem, process table, and network stack.
 - **Pre-built & Custom Templates** - provision sessions with pre-baked Node.js, Python, Go, or custom Dockerfile environments.
 - **Ephemeral by design** - sessions are stateless, time-bounded, and automatically reaped.
@@ -69,6 +69,32 @@ AI agents need to *do things*: write code and run it, install libraries, curl en
 3. Each VM is placed inside its own **Linux network namespace** with a dedicated veth pair, TAP device, and NAT rules - giving the guest full outbound internet access while remaining isolated from other VMs.
 4. Commands are sent to the guest **runtime** over a **vsock** channel. The runtime executes processes, manipulates the filesystem, and streams results back.
 5. When a session is idle for 30 minutes (configurable), the **session reaper** tears down the VM, jail directory, and network namespace.
+
+### Network Packet Path & Isolation Boundary
+
+```text
+MicroVM Guest (eth0: 192.168.241.2/29)
+    ↓
+tap0 (192.168.241.1/29) — inside per-VM network namespace
+    ↓
+Per-Namespace iptables:
+  ├── PREROUTING: transparent DNS redirection (UDP/TCP 53 → local dnsmasq)
+  ├── FORWARD → VM_EGRESS: cloud metadata drop (169.254.169.254/32) + optional CIDR egress rules
+  └── POSTROUTING: MASQUERADE 192.168.241.0/29 outbound to vethNs
+    ↓
+vethNs (10.0.{slot}.1/30)
+    ↓ (veth pair across namespace boundary)
+vethHost (10.0.{slot}.2/30) — on host
+    ↓
+Host-Level iptables:
+  ├── INPUT: DROP all new connections from 10.0.0.0/16 to host daemon ports
+  ├── FORWARD: DROP 169.254.169.254/32 (cloud metadata defense-in-depth)
+  ├── FORWARD: DROP 10.0.0.0/16 → 10.0.0.0/16 (strict inter-VM cross-tenant isolation)
+  ├── FORWARD: ACCEPT 10.0.0.0/16 outbound & return conntrack
+  └── POSTROUTING: MASQUERADE 10.0.0.0/16 out to physical WAN interface
+    ↓
+Internet
+```
 
 ---
 
@@ -540,8 +566,11 @@ Additional endpoints:
 ## Testing
 
 ```bash
-# Run all tests
+# Run unit & mock integration test suites (22 suites, 138+ tests)
 npm test
+
+# Run real Firecracker microVM end-to-end integration test (requires Linux + KVM + root)
+sudo npm run test:e2e
 
 # Watch mode
 npm run test:watch
@@ -550,7 +579,7 @@ npm run test:watch
 npm run test:coverage
 ```
 
-Tests cover the session gateway, VM protocol, jailer path handling, cleanup lifecycle, network setup, egress policies, template registry, and MCP tool integration using [Vitest](https://vitest.dev/) and [Supertest](https://github.com/ladjs/supertest).
+Tests cover the session gateway, VM protocol, jailer path handling, cleanup lifecycle, network setup, egress policies, template registry, MCP tool integration, and full end-to-end microVM boot and execution using [Vitest](https://vitest.dev/) and [Supertest](https://github.com/ladjs/supertest).
 
 ---
 
@@ -740,3 +769,9 @@ As an infrastructure project designed for deep isolation and sub-100ms startup t
 ## Author
 
 **Vivek Jadhav** - [github.com/vivek1504](https://github.com/vivek1504)
+
+---
+
+## License
+
+[ISC](LICENSE) © 2026 Vivek Jadhav

@@ -47,4 +47,17 @@ describe("cleanupVm", () => {
       { recursive: true, force: true },
     );
   });
+
+  it("deduplicates concurrent cleanup calls on the same VM", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+    const vm = makeVm();
+
+    const [first, second] = await Promise.all([
+      cleanupVm("session-1", vm),
+      cleanupVm("session-1", vm),
+    ]);
+
+    expect(vm.firecrackerProcess.kill).toHaveBeenCalledTimes(1);
+    expect(vm.cleaned).toBe(true);
+  });
 });

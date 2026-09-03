@@ -40,6 +40,7 @@ export interface Vm {
   socket?: Socket;
   connectingSocket?: Promise<Socket> | undefined;
   cleaned?: boolean;
+  cleanupPromise?: Promise<void> | undefined;
 }
 
 export async function createVm(
