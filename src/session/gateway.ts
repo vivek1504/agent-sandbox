@@ -103,8 +103,10 @@ export async function ensureSession(
             createdAt: session.createdAt,
             slot: vm.networkInfo.slot,
             nsName: vm.networkInfo.nsName,
+            netns: vm.networkInfo.nsName,
             jailDir: vm.jailDir,
             templateName,
+            pid: vm.firecrackerProcess?.pid,
           });
         }
         return vm;

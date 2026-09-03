@@ -9,8 +9,10 @@ export interface ManifestEntry {
   createdAt: number;
   slot: number;
   nsName: string;
+  netns?: string | undefined;
   jailDir: string;
   templateName?: string | undefined;
+  pid?: number | undefined;
 }
 
 export function getManifestPath(): string {

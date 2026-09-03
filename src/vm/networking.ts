@@ -523,13 +523,17 @@ export async function teardownVmNetwork(info: VmNetworkInfo): Promise<void> {
 }
 
 //to fix the bug where stale namespaces were not cleaned up and there was 100% packet loss
-export function cleanupStaleNetworkResources(): void {
+export function cleanupStaleNetworkResources(targetNamespaces?: Set<string>): void {
   try {
     const nsListOut = execSync("ip netns list 2>/dev/null", { encoding: "utf-8" });
     const staleNamespaces = nsListOut
       .split("\n")
       .map((line) => line.split(" ")[0]?.trim())
-      .filter((name): name is string => !!name && /^ns-[A-Za-z0-9_-]+$/.test(name));
+      .filter((name): name is string => {
+        if (!name || !/^ns-[A-Za-z0-9_-]+$/.test(name)) return false;
+        if (targetNamespaces && !targetNamespaces.has(name)) return false;
+        return true;
+      });
 
     if (staleNamespaces.length === 0) return;
 
