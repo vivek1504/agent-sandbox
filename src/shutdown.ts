@@ -1,5 +1,6 @@
 import type { Server } from "http";
 import { getAllSessions, destroySession } from "./session/session.js";
+import { flushKeys } from "./auth/key-store.js";
 import { logger } from "./logger.js";
 
 let shutdownInProgress = false;
@@ -29,6 +30,12 @@ export function installShutdownHandler(httpServer: Server): void {
     const failed = results.filter((r) => r.status === "rejected");
     if (failed.length > 0) {
       logger.error({ failedCount: failed.length }, "some sessions failed to drain during shutdown");
+    }
+
+    try {
+      flushKeys();
+    } catch (err) {
+      logger.warn({ err }, "failed to flush API keys during shutdown");
     }
 
     logger.info("graceful shutdown complete");

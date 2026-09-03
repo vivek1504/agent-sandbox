@@ -117,12 +117,28 @@ export function verifyKey(rawKey: string): ResolvedKey | null {
   };
 }
 
+let saveTimer: NodeJS.Timeout | undefined;
+
+export function flushKeys(): void {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = undefined;
+  }
+  saveKeys();
+}
+
 export function touchKey(id: string): void {
   if (!loaded) loadKeys();
   const record = keys.find((k) => k.id === id);
   if (record) {
     record.lastUsedAt = Date.now();
-    saveKeys();
+    if (!saveTimer) {
+      saveTimer = setTimeout(() => {
+        saveTimer = undefined;
+        saveKeys();
+      }, 5000);
+      saveTimer.unref?.();
+    }
   }
 }
 
