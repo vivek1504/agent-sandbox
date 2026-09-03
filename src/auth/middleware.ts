@@ -49,8 +49,8 @@ export function authMiddleware(...requiredScopes: Scope[]) {
       req.apiKey = {
         id: "legacy_mcp",
         name: "Legacy MCP Token",
-        scopes: ["exec", "admin", "metrics"],
-        rateLimit: 0,
+        scopes: ["exec"],
+        rateLimit: 100,
       };
       authRequestsTotal.inc({ result: "success" });
       return next();
