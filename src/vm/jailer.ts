@@ -9,7 +9,6 @@ export interface VmResourceConfig {
   cpuPeriodUs: number;
   memoryLimitBytes: number;
   noFileSoftLimit: number;
-  diskLimitBytes?: number
 }
 
 export const JAILER_BIN =
@@ -77,16 +76,18 @@ export function prepareJail(
   fs.mkdirSync(artifactsDir, { recursive: true });
 
   try {
-    fs.chmodSync(dir, 0o777);
-    fs.chmodSync(rootDir, 0o777);
-    fs.chmodSync(runDir, 0o777);
-    fs.chmodSync(artifactsDir, 0o777);
+    fs.chmodSync(dir, 0o750);
+    fs.chmodSync(rootDir, 0o750);
+    fs.chmodSync(runDir, 0o750);
+    fs.chmodSync(artifactsDir, 0o750);
 
     fs.chownSync(dir, FIRECRACKER_UID, FIRECRACKER_GID);
     fs.chownSync(rootDir, FIRECRACKER_UID, FIRECRACKER_GID);
     fs.chownSync(runDir, FIRECRACKER_UID, FIRECRACKER_GID);
     fs.chownSync(artifactsDir, FIRECRACKER_UID, FIRECRACKER_GID);
-  } catch { }
+  } catch {
+    // Best-effort permission setting; may be restricted in unprivileged test environments
+  }
 
   fs.linkSync(template.snapshotPath, path.join(artifactsDir, "snapshot"));
   fs.linkSync(template.memoryPath, path.join(artifactsDir, "memory"));
@@ -192,16 +193,18 @@ export function prepareSnapshotCreationJail(
   fs.mkdirSync(artifactsDir, { recursive: true });
 
   try {
-    fs.chmodSync(dir, 0o777);
-    fs.chmodSync(rootDir, 0o777);
-    fs.chmodSync(runDir, 0o777);
-    fs.chmodSync(artifactsDir, 0o777);
+    fs.chmodSync(dir, 0o750);
+    fs.chmodSync(rootDir, 0o750);
+    fs.chmodSync(runDir, 0o750);
+    fs.chmodSync(artifactsDir, 0o750);
 
     fs.chownSync(dir, FIRECRACKER_UID, FIRECRACKER_GID);
     fs.chownSync(rootDir, FIRECRACKER_UID, FIRECRACKER_GID);
     fs.chownSync(runDir, FIRECRACKER_UID, FIRECRACKER_GID);
     fs.chownSync(artifactsDir, FIRECRACKER_UID, FIRECRACKER_GID);
-  } catch { }
+  } catch {
+    // Best-effort permission setting; may be restricted in unprivileged test environments
+  }
 
   fs.linkSync(
     path.join(ARTIFACTS_DIR, "vmlinux"),
@@ -238,8 +241,5 @@ export function loadResourceConfig(): VmResourceConfig {
       10,
     ),
     noFileSoftLimit: parseInt(process.env.VM_NOFILE_LIMIT ?? "1024", 10),
-    diskLimitBytes: process.env.VM_DISK_LIMIT_BYTES
-      ? parseInt(process.env.VM_DISK_LIMIT_BYTES, 10)
-      : 512 * 1024 * 1024,
   };
 }

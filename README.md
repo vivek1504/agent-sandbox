@@ -249,12 +249,12 @@ Every session gets defense-in-depth isolation:
 | Layer | Mechanism |
 |---|---|
 | **Compute** | Dedicated Firecracker microVM with its own Linux kernel |
-| **Filesystem** | Read-only rootfs + ephemeral tmpfs workspace |
-| **Network** | Per-VM Linux network namespace (veth + TAP + NAT) |
-| **Process** | Firecracker Jailer - chroot, UID/GID separation, `seccomp` |
-| **Resources** | Configurable vCPU, memory, and file descriptor limits |
-| **Lifecycle** | Automatic reaping of idle sessions (default: 30 min TTL) |
-| **Security** | Path traversal prevention on all file operations |
+| **Filesystem** | Read-only ext4 rootfs + isolated 512MB tmpfs workspace mount |
+| **Network** | Per-VM Linux network namespace (veth + TAP + NAT) with IPv4 egress chains and IPv6 DROP |
+| **Process** | Firecracker Jailer — chroot (`0o750` perms), UID/GID separation, and default seccomp filter |
+| **Resources** | Host cgroups (CPU quota/period, memory max, file descriptor limits) |
+| **Lifecycle** | Automatic reaping of idle sessions (default: 30 min TTL) + startup orphan recovery |
+| **Security** | Path traversal prevention on all file and workspace operations |
 
 ---
 
@@ -441,7 +441,6 @@ All configuration is via environment variables:
 | `VM_CPU_PERIOD_US` | `100000` | CPU period in microseconds for cgroups |
 | `VM_MEMORY_LIMIT_BYTES` | `134217728` (128 MiB) | Host-side cgroup memory limit in bytes |
 | `VM_NOFILE_LIMIT` | `1024` | Maximum number of open file descriptors for the VM process |
-| `VM_DISK_LIMIT_BYTES` | `536870912` (512 MiB) | Host-side cgroup disk quota limit in bytes |
 | `VM_DNS_MODE` | `none` | Per-VM DNS filtering mode (`none`, `allow`, `deny`) |
 | `VM_DNS_DOMAINS` | `""` | Comma-separated domain filter list (e.g. `*.npmjs.org,github.com`) |
 | `VM_DNS_UPSTREAM` | `8.8.8.8,1.1.1.1` | Comma-separated upstream DNS servers |
@@ -651,6 +650,18 @@ minimal-rootfs/
 | Client SDKs | TypeScript |
 | Observability | Pino (structured logs) + prom-client (Prometheus metrics) |
 | Testing | Vitest + Supertest |
+
+---
+
+## Known Limitations & Engineering Tradeoffs
+
+As an infrastructure project designed for deep isolation and sub-100ms startup times, several deliberate architectural choices and current limitations apply:
+
+* **Single-Node Execution**: Agent Sandbox is designed as an ultra-fast, local or single-node execution runtime worker. Multi-node cluster orchestration, node health balancing, and global tenant scheduling belong in a higher control-plane layer.
+* **Privileged Host Daemon**: Dynamically provisioning network namespaces, configuring veth pairs, setting up TAP devices, and managing chroot environments with Firecracker Jailer requires host `root` / `CAP_NET_ADMIN` privileges.
+* **Ephemeral Workspace Storage**: Workspaces reside in a guest tmpfs mount (`size=512m`) for maximum I/O throughput and clean teardown. Cross-session volume persistence is planned on the roadmap via attached block devices or remote sync.
+* **Network Namespace Provisioning Overhead**: Profiling demonstrates that Firecracker snapshot restoration executes in **~2.6ms**, whereas sequential Linux network setup (namespaces, veth interfaces, iptables chains) consumes **~55ms** of total cold start (~91ms p50). Moving from shell executions to direct Linux netlink syscalls or pre-warmed namespace pools is the primary optimization path for sub-20ms cold starts.
+* **In-Memory Session Table**: Active session handles are managed in an in-memory state machine. In the event of an unclean host crash, the persistent manifest file (`sessions.json`) and startup orphan sweep automatically reclaim leaked network slots, namespaces, and jail directories.
 
 ---
 
