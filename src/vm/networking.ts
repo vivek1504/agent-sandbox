@@ -621,6 +621,12 @@ export function ensureHostNetworkSetup(): void {
         "add host FORWARD for VM subnets (return)",
       );
     }
+    if (!existing.includes("-s 10.0.0.0/16 -d 10.0.0.0/16 -j DROP")) {
+      run(
+        `iptables -I FORWARD -s 10.0.0.0/16 -d 10.0.0.0/16 -j DROP`,
+        "isolate VMs from each other (host-level inter-VM drop)",
+      );
+    }
     if (!existing.includes("169.254.169.254")) {
       run(
         `iptables -I FORWARD -s 10.0.0.0/16 -d 169.254.169.254/32 -j DROP`,

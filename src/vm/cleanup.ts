@@ -6,61 +6,68 @@ import { teardownVmNetwork } from "./networking.js";
 
 import type { Vm } from "./vm-manager.js";
 
-export async function cleanupVm(sessionId: string, vm: Vm) {
+export async function cleanupVm(sessionId: string, vm: Vm): Promise<void> {
   if (vm.cleaned) return;
-
-  vm.cleaned = true;
-  vmLogger.info(
-    { sessionId, vmId: vm.id },
-    "cleaning up VM",
-  );
-
-  try {
-    vm.firecrackerProcess.kill();
-    vmLogger.debug({ vmId: vm.id }, "firecracker process killed");
-  } catch (err) {
-    // Process may already have terminated or exited
-    vmLogger.debug({ vmId: vm.id, err }, "process may already have exited");
+  if (vm.cleanupPromise) {
+    return vm.cleanupPromise;
   }
 
-  try {
-    if (fs.existsSync(vm.apiSock)) {
-      fs.unlinkSync(vm.apiSock);
-      vmLogger.debug({ path: vm.apiSock }, "API socket removed");
+  vm.cleanupPromise = (async () => {
+    vmLogger.info(
+      { sessionId, vmId: vm.id },
+      "cleaning up VM",
+    );
+
+    try {
+      vm.firecrackerProcess.kill();
+      vmLogger.debug({ vmId: vm.id }, "firecracker process killed");
+    } catch (err) {
+      // Process may already have terminated or exited
+      vmLogger.debug({ vmId: vm.id, err }, "process may already have exited");
     }
 
-    if (fs.existsSync(vm.vsock)) {
-      fs.unlinkSync(vm.vsock);
-      vmLogger.debug({ path: vm.vsock }, "vsock removed");
+    try {
+      if (fs.existsSync(vm.apiSock)) {
+        fs.unlinkSync(vm.apiSock);
+        vmLogger.debug({ path: vm.apiSock }, "API socket removed");
+      }
+
+      if (fs.existsSync(vm.vsock)) {
+        fs.unlinkSync(vm.vsock);
+        vmLogger.debug({ path: vm.vsock }, "vsock removed");
+      }
+    } catch (err) {
+      // Sockets may already have been unlinked
+      vmLogger.debug({ vmId: vm.id, err }, "socket cleanup non-fatal error");
     }
-  } catch (err) {
-    // Sockets may already have been unlinked
-    vmLogger.debug({ vmId: vm.id, err }, "socket cleanup non-fatal error");
-  }
 
-  try {
-    if (vm.jailDir) {
-      removeJail(vm.jailDir);
-      vmLogger.debug({ path: vm.jailDir }, "jail directory removed");
+    try {
+      if (vm.jailDir) {
+        removeJail(vm.jailDir);
+        vmLogger.debug({ path: vm.jailDir }, "jail directory removed");
+      }
+    } catch (err) {
+      vmLogger.warn({ vmId: vm.id, err }, "failed to remove jail directory");
     }
-  } catch (err) {
-    vmLogger.warn({ vmId: vm.id, err }, "failed to remove jail directory");
-  }
 
-  try {
-    if (vm.networkInfo) {
-      await teardownVmNetwork(vm.networkInfo);
-      vmLogger.debug({ nsName: vm.networkInfo.nsName }, "network namespace removed");
+    try {
+      if (vm.networkInfo) {
+        await teardownVmNetwork(vm.networkInfo);
+        vmLogger.debug({ nsName: vm.networkInfo.nsName }, "network namespace removed");
+      }
+    } catch (err) {
+      vmLogger.warn({ vmId: vm.id, err }, "failed to teardown VM network");
     }
-  } catch (err) {
-    vmLogger.warn({ vmId: vm.id, err }, "failed to teardown VM network");
-  }
 
-  vmCleanupTotal.inc();
-  vmCount.dec({ function_id: sessionId, state: vm.state });
+    vm.cleaned = true;
+    vmCleanupTotal.inc();
+    vmCount.dec({ function_id: sessionId, state: vm.state });
 
-  vmLogger.info(
-    { sessionId, vmId: vm.id },
-    "VM cleanup completed",
-  );
+    vmLogger.info(
+      { sessionId, vmId: vm.id },
+      "VM cleanup completed",
+    );
+  })();
+
+  return vm.cleanupPromise;
 }

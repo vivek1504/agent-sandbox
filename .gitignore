@@ -9,7 +9,12 @@ tsconfig.tsbuildinfo
 
 future.md
 rootfs.ext4
+*.ext4
 node_modules
 vmlinux
+vmlinux*
 coverage
 .env
+*.sock
+*.socket
+*.log
