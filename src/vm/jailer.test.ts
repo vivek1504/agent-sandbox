@@ -8,6 +8,8 @@ vi.mock("fs", () => ({
     mkdirSync: vi.fn(),
     linkSync: vi.fn(),
     rmSync: vi.fn(),
+    chmodSync: vi.fn(),
+    chownSync: vi.fn(),
   },
 }));
 
@@ -103,6 +105,47 @@ describe("jailer", () => {
       expect(argsStr).toContain("cpu.max=50000 100000");
     } else {
       expect(argsStr).toContain("cpu.cpu.cfs_quota_us=50000");
+    }
+    expect(argsStr).toContain("pids.max=256");
+  });
+
+  it("includes custom pids.max limit when provided", () => {
+    const args = jailerArgs("test3", undefined, {
+      ...loadResourceConfig(),
+      pidsLimit: 512,
+    });
+    expect(args.join(" ")).toContain("pids.max=512");
+  });
+
+  it("enforces strict permissions failure when STRICT_PERMISSIONS=true", () => {
+    const origEnv = process.env.STRICT_PERMISSIONS;
+    process.env.STRICT_PERMISSIONS = "true";
+    try {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      vi.mocked(fs.chmodSync).mockImplementation(() => {
+        throw new Error("EPERM: operation not permitted");
+      });
+
+      const mockTemplate = {
+        manifest: {
+          name: "node",
+          displayName: "Node",
+          version: "1.0.0",
+          description: "Node environment",
+          tools: ["node"],
+          baseImage: "alpine",
+          createdAt: "2026-08-10T00:00:00Z",
+        },
+        rootfsPath: "/var/lib/agent-sandbox/artifacts/templates/node/rootfs.ext4",
+        snapshotPath: "/var/lib/agent-sandbox/artifacts/templates/node/snapshot",
+        memoryPath: "/var/lib/agent-sandbox/artifacts/templates/node/memory",
+      };
+
+      expect(() => prepareJail("strict-test", mockTemplate)).toThrow(
+        /Failed to set strict permissions on jail directory/,
+      );
+    } finally {
+      process.env.STRICT_PERMISSIONS = origEnv;
     }
   });
 });

@@ -24,7 +24,7 @@ function parseArgs(): BenchOptions {
   const args = process.argv.slice(2);
   const options: BenchOptions = {
     suite: "all",
-    iterations: 10,
+    iterations: 20,
     template: "node",
     concurrency: [1, 5, 10],
     verboseStats: false,

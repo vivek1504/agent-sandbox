@@ -28,6 +28,7 @@ try {
   vmResourceConfig.set({ resource: "cpu_period_us" }, config.cpuPeriodUs);
   vmResourceConfig.set({ resource: "memory_limit_bytes" }, config.memoryLimitBytes);
   vmResourceConfig.set({ resource: "no_file_soft_limit" }, config.noFileSoftLimit);
+  vmResourceConfig.set({ resource: "pids_limit" }, config.pidsLimit);
 } catch (err) {
   logger.warn({ err }, "failed to set vm resource metrics");
 }

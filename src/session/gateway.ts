@@ -24,7 +24,20 @@ export async function ensureSession(
 ): Promise<Vm> {
   let session = getSession(sessionId);
   session = session || createSession(sessionId, templateName, ownerId);
-  if (session.vm) return session.vm;
+  if (session.vm) {
+    if (session.vm.state === "dead" || session.vm.cleaned) {
+      sessionLogger.warn(
+        { sessionId, vmId: session.vm.id },
+        "VM is dead or cleaned up, resetting session VM for recreation",
+      );
+      const deadVm = session.vm;
+      session.vm = undefined;
+      session.state = "creating";
+      await cleanupVm(sessionId, deadVm).catch(() => {});
+    } else {
+      return session.vm;
+    }
+  }
   if (session.creation) return session.creation;
 
   session.creation = createVm(sessionId, templateName, resources, egressPolicy)
@@ -65,6 +78,7 @@ export async function sendSessionMessage(
   templateName?: string,
   ownerId?: string,
 ): Promise<any> {
+  touchSession(sessionId);
   const vm = await ensureSession(sessionId, templateName, ownerId);
   touchSession(sessionId);
 

@@ -38,6 +38,7 @@ export interface Vm {
   jailDir?: string;
   networkInfo?: VmNetworkInfo;
   socket?: Socket;
+  connectingSocket?: Promise<Socket> | undefined;
   cleaned?: boolean;
 }
 
@@ -82,13 +83,6 @@ export async function createVm(
       vmLogger.error({ instanceId, err }, "jailer process error");
     });
 
-    fc.on("exit", (code, signal) => {
-      vmLogger.info(
-        { instanceId, exitCode: code, signal },
-        "jailer process exited",
-      );
-    });
-
     await waitForFirecrackerApiSocket(jail.apiSocket);
 
     const client = createFcClient(jail.apiSocket);
@@ -103,6 +97,17 @@ export async function createVm(
       jailDir: jail.instanceDir,
       networkInfo,
     };
+
+    fc.on("exit", (code, signal) => {
+      vm.state = "dead";
+      if (vm.socket && !vm.socket.destroyed) {
+        vm.socket.destroy();
+      }
+      vmLogger.info(
+        { instanceId, exitCode: code, signal },
+        "jailer process exited, VM marked as dead",
+      );
+    });
 
     const durationSec = (performance.now() - start) / 1000;
     vmCreationTime.observe(durationSec);
