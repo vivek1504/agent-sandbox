@@ -90,4 +90,18 @@ describe("Session State Machine & Lifecycle", () => {
     expect(list.some((s) => s.sessionId === "list-s1")).toBe(true);
     expect(list.some((s) => s.sessionId === "list-s2")).toBe(true);
   });
+
+  it("rejects destroySession if called with mismatched ownerId", async () => {
+    const s = createSession("owned-s1", "node", "tenant-1");
+    s.state = "active";
+
+    await expect(destroySession("owned-s1", "tenant-2")).rejects.toThrow(
+      /Session belongs to another owner/,
+    );
+    expect(getSession("owned-s1")).toBeDefined();
+
+    const destroyed = await destroySession("owned-s1", "tenant-1");
+    expect(destroyed).toBe(true);
+    expect(getSession("owned-s1")).toBeUndefined();
+  });
 });

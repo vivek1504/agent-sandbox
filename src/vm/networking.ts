@@ -217,6 +217,26 @@ async function setupDnsFiltering(info: VmNetworkInfo, dns: DnsPolicy): Promise<v
   await Promise.all([
     runInNs(
       info.nsName,
+      `iptables -t nat -A PREROUTING -i tap0 -p udp --dport 53 -j REDIRECT --to-ports 53`,
+      "redirect guest DNS (UDP) to local dnsmasq filter",
+    ),
+    runInNs(
+      info.nsName,
+      `iptables -t nat -A PREROUTING -i tap0 -p tcp --dport 53 -j REDIRECT --to-ports 53`,
+      "redirect guest DNS (TCP) to local dnsmasq filter",
+    ),
+    runInNs(
+      info.nsName,
+      `iptables -A INPUT -i tap0 -p udp --dport 53 -j ACCEPT`,
+      "allow redirected DNS (UDP) to dnsmasq",
+    ),
+    runInNs(
+      info.nsName,
+      `iptables -A INPUT -i tap0 -p tcp --dport 53 -j ACCEPT`,
+      "allow redirected DNS (TCP) to dnsmasq",
+    ),
+    runInNs(
+      info.nsName,
       `iptables -A VM_EGRESS -p udp --dport 53 -j DROP`,
       "block direct DNS egress (UDP)",
     ),
@@ -423,13 +443,13 @@ export async function setupVmNetwork(
       ),
       runInNs(
         info.nsName,
-        "sysctl -w net.ipv4.conf.tap0.rp_filter=0",
-        "disable rp_filter for tap0",
+        "sysctl -w net.ipv4.conf.tap0.rp_filter=2",
+        "set loose rp_filter for tap0",
       ),
       runInNs(
         info.nsName,
-        "sysctl -w net.ipv4.conf.all.rp_filter=0",
-        "disable rp_filter for all",
+        "sysctl -w net.ipv4.conf.all.rp_filter=2",
+        "set loose rp_filter for all",
       ),
       runInNs(
         info.nsName,
@@ -609,5 +629,17 @@ export function ensureHostNetworkSetup(): void {
     }
   } catch (err) {
     vmLogger.warn({ err }, "could not verify/add host FORWARD rules");
+  }
+
+  try {
+    const existingInput = execSync("iptables -S INPUT", { encoding: "utf-8" });
+    if (!existingInput.includes("-s 10.0.0.0/16 -j DROP")) {
+      run(
+        `iptables -I INPUT -s 10.0.0.0/16 -j DROP`,
+        "block VMs from accessing host services (host-level INPUT)",
+      );
+    }
+  } catch (err) {
+    vmLogger.warn({ err }, "could not verify/add host INPUT drop rule");
   }
 }

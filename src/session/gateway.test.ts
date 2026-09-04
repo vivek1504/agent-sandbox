@@ -101,6 +101,16 @@ describe("ensureSession", () => {
     await ensureSession("brand-new");
     expect(getSession("brand-new")?.vm?.id).toBe("mock-vm");
   });
+
+  it("enforces session ownership and rejects cross-tenant access", async () => {
+    await ensureSession("tenant-session", undefined, "tenant-a");
+    await expect(
+      ensureSession("tenant-session", undefined, "tenant-b"),
+    ).rejects.toThrow(/Session belongs to another owner/);
+
+    const sameOwner = await ensureSession("tenant-session", undefined, "tenant-a");
+    expect(sameOwner.id).toBe("mock-vm");
+  });
 });
 
 describe("sendSessionMessage", () => {

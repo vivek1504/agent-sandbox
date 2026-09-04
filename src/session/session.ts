@@ -43,9 +43,15 @@ export function touchSession(sessionId: string): void {
   if (session) session.lastActivityAt = Date.now();
 }
 
-export async function destroySession(sessionId: string): Promise<boolean> {
+export async function destroySession(sessionId: string, ownerId?: string): Promise<boolean> {
   const session = sessions.get(sessionId);
   if (!session) return false;
+
+  if (session.ownerId && ownerId && session.ownerId !== ownerId) {
+    const err = new Error("Session belongs to another owner");
+    (err as any).statusCode = 403;
+    throw err;
+  }
 
   session.state = "destroying";
 
