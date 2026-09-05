@@ -38,14 +38,53 @@ execRouter.post("/:sessionId/execute", async (req, res) => {
   if (!command || typeof command !== "string" || !command.trim()) {
     return res.status(400).json({ error: "command is required and must be a non-empty string" });
   }
-  if (args !== undefined && (!Array.isArray(args) || !args.every((a) => typeof a === "string"))) {
-    return res.status(400).json({ error: "args must be an array of strings" });
+  if (command.length > 4096) {
+    return res.status(400).json({ error: "command exceeds maximum length of 4096 characters" });
   }
-  if (cwd !== undefined && typeof cwd !== "string") {
-    return res.status(400).json({ error: "cwd must be a string" });
+  if (args !== undefined) {
+    if (!Array.isArray(args) || !args.every((a) => typeof a === "string")) {
+      return res.status(400).json({ error: "args must be an array of strings" });
+    }
+    if (args.length > 100) {
+      return res.status(400).json({ error: "args cannot contain more than 100 items" });
+    }
+    if (args.some((a) => a.length > 4096)) {
+      return res.status(400).json({ error: "individual args cannot exceed 4096 characters" });
+    }
   }
-  if (timeout !== undefined && (typeof timeout !== "number" || timeout <= 0)) {
+  if (cwd !== undefined) {
+    if (typeof cwd !== "string") {
+      return res.status(400).json({ error: "cwd must be a string" });
+    }
+    if (cwd.length > 512) {
+      return res.status(400).json({ error: "cwd cannot exceed 512 characters" });
+    }
+  }
+  if (env !== undefined) {
+    if (typeof env !== "object" || env === null || Array.isArray(env)) {
+      return res.status(400).json({ error: "env must be an object of key-value string pairs" });
+    }
+    const envEntries = Object.entries(env);
+    if (envEntries.length > 64) {
+      return res.status(400).json({ error: "too many environment variables (max 64)" });
+    }
+    for (const [k, v] of envEntries) {
+      if (typeof v !== "string") {
+        return res.status(400).json({ error: `env value for "${k}" must be a string` });
+      }
+      if (v.length > 8192) {
+        return res.status(400).json({ error: `env value for "${k}" exceeds max length of 8192` });
+      }
+    }
+  }
+  if (timeout !== undefined && (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout <= 0)) {
     return res.status(400).json({ error: "timeout must be a positive number" });
+  }
+  if (typeof timeout === "number" && timeout > 300000) {
+    return res.status(400).json({ error: "timeout cannot exceed 300000ms" });
+  }
+  if (template !== undefined && (typeof template !== "string" || template.length > 64)) {
+    return res.status(400).json({ error: "template must be a string up to 64 characters" });
   }
 
   const execTimeout = typeof timeout === "number" && timeout > 0 ? timeout : 60000;
@@ -116,6 +155,12 @@ execRouter.post("/:sessionId/write", async (req, res) => {
   if (!filePath || typeof filePath !== "string" || content === undefined || typeof content !== "string") {
     return res.status(400).json({ error: "path and content must be strings" });
   }
+  if (filePath.length > 1024) {
+    return res.status(400).json({ error: "path cannot exceed 1024 characters" });
+  }
+  if (content.length > 10 * 1024 * 1024) {
+    return res.status(400).json({ error: "content exceeds maximum allowed size of 10MB" });
+  }
 
   try {
     const contentBase64 = Buffer.from(content, "utf8").toString("base64");
@@ -141,6 +186,9 @@ execRouter.get("/:sessionId/read", async (req, res) => {
 
   if (!filePath || typeof filePath !== "string") {
     return res.status(400).json({ error: "path query param required and must be a string" });
+  }
+  if (filePath.length > 1024) {
+    return res.status(400).json({ error: "path cannot exceed 1024 characters" });
   }
 
   try {

@@ -8,7 +8,32 @@ const WORKSPACE_PREFIX = WORKSPACE + path.sep;
 const activeProcesses = new Map();
 
 function isInsideWorkspace(absPath) {
-  return absPath === WORKSPACE || absPath.startsWith(WORKSPACE_PREFIX);
+  try {
+    if (fs.existsSync(absPath)) {
+      const real = fs.realpathSync(absPath);
+      return real === WORKSPACE || real.startsWith(WORKSPACE_PREFIX);
+    }
+    // For paths that do not exist yet (e.g. creating a new file), check parent
+    let curr = absPath;
+    while (!fs.existsSync(curr) && curr !== path.dirname(curr)) {
+      curr = path.dirname(curr);
+    }
+    const realParent = fs.realpathSync(curr);
+    return realParent === WORKSPACE || realParent.startsWith(WORKSPACE_PREFIX);
+  } catch {
+    return false;
+  }
+}
+
+function killProcessTree(proc, signal) {
+  if (!proc || !proc.pid) return;
+  try {
+    process.kill(-proc.pid, signal);
+  } catch {
+    try {
+      proc.kill(signal);
+    } catch {}
+  }
 }
 
 const handlers = {
@@ -76,6 +101,7 @@ function handleExecute(socket, msg) {
     cwd: workDir,
     env: { ...process.env, HOME: WORKSPACE, ...env },
     stdio: ["ignore", "pipe", "pipe"],
+    detached: true,
   });
 
   activeProcesses.set(id, proc);
@@ -104,9 +130,9 @@ function handleExecute(socket, msg) {
   });
 
   const timer = setTimeout(() => {
-    proc.kill("SIGTERM");
+    killProcessTree(proc, "SIGTERM");
     setTimeout(() => {
-      if (!proc.killed) proc.kill("SIGKILL");
+      if (!proc.killed) killProcessTree(proc, "SIGKILL");
     }, 5000);
   }, timeout);
 
@@ -234,9 +260,9 @@ function handleCancel(socket, msg) {
     return sendError(socket, id, "No running process with this id", -1);
   }
 
-  proc.kill("SIGTERM");
+  killProcessTree(proc, "SIGTERM");
   setTimeout(() => {
-    if (!proc.killed) proc.kill("SIGKILL");
+    if (!proc.killed) killProcessTree(proc, "SIGKILL");
   }, 5000);
 }
 

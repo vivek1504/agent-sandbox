@@ -107,5 +107,31 @@ describe("auth middleware", () => {
       });
       expect(next).not.toHaveBeenCalled();
     });
+
+    it("grants only exec scope to legacy MCP_AUTH_TOKEN", () => {
+      process.env.MCP_AUTH_TOKEN = "legacy-token-secret";
+      const req = {
+        headers: { authorization: "Bearer legacy-token-secret" },
+        query: {},
+      } as unknown as Request;
+      const res = {
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn(),
+      } as unknown as Response;
+      const next = vi.fn();
+
+      authMiddleware("exec")(req, res, next);
+
+      expect(next).toHaveBeenCalled();
+      expect(req.apiKey).toBeDefined();
+      expect(req.apiKey?.scopes).toEqual(["exec"]);
+      expect(req.apiKey?.rateLimit).toBe(100);
+
+      // Now verify it fails admin check
+      const adminNext = vi.fn();
+      authMiddleware("admin")(req, res, adminNext);
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(adminNext).not.toHaveBeenCalled();
+    });
   });
 });

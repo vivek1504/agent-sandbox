@@ -111,6 +111,18 @@ describe("ensureSession", () => {
     const sameOwner = await ensureSession("tenant-session", undefined, "tenant-a");
     expect(sameOwner.id).toBe("mock-vm");
   });
+
+  it("rejects second user attempting to hijack concurrent in-flight session creation", async () => {
+    const p1 = ensureSession("racing-session", undefined, "user-1");
+    const p2 = ensureSession("racing-session", undefined, "user-2");
+
+    const [r1, r2] = await Promise.allSettled([p1, p2]);
+    expect(r1.status).toBe("fulfilled");
+    expect(r2.status).toBe("rejected");
+    if (r2.status === "rejected") {
+      expect(r2.reason.message).toMatch(/Session belongs to another owner/);
+    }
+  });
 });
 
 describe("sendSessionMessage", () => {
