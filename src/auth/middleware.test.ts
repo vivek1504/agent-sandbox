@@ -23,12 +23,28 @@ describe("auth middleware", () => {
       expect(extractKey(req)).toBe("sk_test_secret123");
     });
 
-    it("extracts key from x-api-key header", () => {
+    it("rejects x-api-key header (standardizes on Bearer token)", () => {
       const req = {
         headers: { "x-api-key": "sk_test_header123" },
         query: {},
       } as unknown as Request;
-      expect(extractKey(req)).toBe("sk_test_header123");
+      expect(extractKey(req)).toBeNull();
+    });
+
+    it("rejects empty Bearer token", () => {
+      const req = {
+        headers: { authorization: "Bearer " },
+        query: {},
+      } as unknown as Request;
+      expect(extractKey(req)).toBeNull();
+    });
+
+    it("rejects non-Bearer authorization schemes", () => {
+      const req = {
+        headers: { authorization: "Basic dXNlcjpwYXNz" },
+        query: {},
+      } as unknown as Request;
+      expect(extractKey(req)).toBeNull();
     });
 
     it("rejects/ignores query parameter API keys (OWASP compliance)", () => {
@@ -108,8 +124,9 @@ describe("auth middleware", () => {
       expect(next).not.toHaveBeenCalled();
     });
 
-    it("grants only exec scope to legacy MCP_AUTH_TOKEN", () => {
+    it("does not recognize legacy MCP_AUTH_TOKEN (rejects with 401)", () => {
       process.env.MCP_AUTH_TOKEN = "legacy-token-secret";
+      vi.mocked(keyStore.verifyKey).mockReturnValue(null);
       const req = {
         headers: { authorization: "Bearer legacy-token-secret" },
         query: {},
@@ -122,16 +139,10 @@ describe("auth middleware", () => {
 
       authMiddleware("exec")(req, res, next);
 
-      expect(next).toHaveBeenCalled();
-      expect(req.apiKey).toBeDefined();
-      expect(req.apiKey?.scopes).toEqual(["exec"]);
-      expect(req.apiKey?.rateLimit).toBe(100);
-
-      // Now verify it fails admin check
-      const adminNext = vi.fn();
-      authMiddleware("admin")(req, res, adminNext);
-      expect(res.status).toHaveBeenCalledWith(403);
-      expect(adminNext).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({ error: "Invalid API key" });
+      expect(next).not.toHaveBeenCalled();
+      delete process.env.MCP_AUTH_TOKEN;
     });
   });
 });
