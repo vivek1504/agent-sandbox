@@ -6,6 +6,7 @@ import {
   execSessionDurationSeconds,
 } from "../metrics.js";
 import { removeEntry } from "./manifest.js";
+import { assertOwnership } from "../auth/ownership.js";
 
 export interface Session {
   sessionId: string;
@@ -47,11 +48,7 @@ export async function destroySession(sessionId: string, ownerId?: string): Promi
   const session = sessions.get(sessionId);
   if (!session) return false;
 
-  if (session.ownerId && ownerId && session.ownerId !== ownerId) {
-    const err = new Error("Session belongs to another owner");
-    (err as any).statusCode = 403;
-    throw err;
-  }
+  assertOwnership(session, ownerId);
 
   session.state = "destroying";
 

@@ -1,6 +1,17 @@
 import type { Request, Response, NextFunction } from "express";
 import { getSession } from "../session/session.js";
 
+export function assertOwnership(
+  session: { ownerId?: string | undefined },
+  callerId?: string | undefined,
+): void {
+  if (session.ownerId && callerId && session.ownerId !== callerId) {
+    const err = new Error("Session belongs to another owner");
+    (err as any).statusCode = 403;
+    throw err;
+  }
+}
+
 export function requireOwnership(req: Request, res: Response, next: NextFunction): void {
   if (process.env.AUTH_ENABLED === "false") {
     return next();
@@ -17,10 +28,11 @@ export function requireOwnership(req: Request, res: Response, next: NextFunction
     return next();
   }
 
-  if (session.ownerId && req.apiKey && session.ownerId !== req.apiKey.id) {
-    res.status(403).json({ error: "Session belongs to another API key" });
-    return;
+  try {
+    assertOwnership(session, req.apiKey?.id);
+    next();
+  } catch (err: any) {
+    res.status(err.statusCode ?? 403).json({ error: err.message });
   }
-
-  next();
 }
+

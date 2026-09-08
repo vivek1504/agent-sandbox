@@ -14,12 +14,8 @@ declare global {
 export function extractKey(req: Request): string | null {
   const auth = req.headers.authorization;
   if (auth && auth.startsWith("Bearer ")) {
-    return auth.slice(7).trim();
-  }
-
-  const header = req.headers["x-api-key"];
-  if (typeof header === "string" && header.trim()) {
-    return header.trim();
+    const key = auth.slice(7).trim();
+    return key.length > 0 ? key : null;
   }
 
   return null;
@@ -33,27 +29,12 @@ export function authMiddleware(...requiredScopes: Scope[]) {
 
     const rawKey = extractKey(req);
     if (!rawKey) {
-      // Legacy fallback for MCP_AUTH_TOKEN if explicitly set and matches
-      const legacyMcpToken = process.env.MCP_AUTH_TOKEN;
-      if (legacyMcpToken) {
-        // No key provided
-      }
       authRequestsTotal.inc({ result: "missing_key" });
       res.status(401).json({ error: "API key required" });
       return;
     }
 
-    // Check if key matches legacy MCP_AUTH_TOKEN when set
-    const legacyToken = process.env.MCP_AUTH_TOKEN;
-    const resolved: ResolvedKey | null =
-      legacyToken && rawKey === legacyToken
-        ? {
-            id: "legacy_mcp",
-            name: "Legacy MCP Token",
-            scopes: ["exec"],
-            rateLimit: 100,
-          }
-        : verifyKey(rawKey);
+    const resolved: ResolvedKey | null = verifyKey(rawKey);
     if (!resolved) {
       authRequestsTotal.inc({ result: "invalid_key" });
       res.status(401).json({ error: "Invalid API key" });
