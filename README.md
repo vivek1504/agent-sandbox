@@ -36,7 +36,7 @@ AI agents need to perform real-world actions: generate and execute code, install
 Agent Sandbox separates untrusted guest execution from the host control plane through strict virtualization and network boundaries.
 
 <p align="center">
-  <img width="100%" alt="Agent Sandbox Architecture Diagram" src="https://github.com/user-attachments/assets/305c4ca5-3c36-4da9-a2ab-a824a1a2209a"/>
+  <img width="100%" alt="Agent Sandbox Architecture Diagram" src="https://github.com/user-attachments/assets/6d25473f-161f-4bff-b2f1-a6b085e7ea7e"/>
 </p>
 
 <details>
