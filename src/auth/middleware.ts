@@ -45,18 +45,15 @@ export function authMiddleware(...requiredScopes: Scope[]) {
 
     // Check if key matches legacy MCP_AUTH_TOKEN when set
     const legacyToken = process.env.MCP_AUTH_TOKEN;
-    if (legacyToken && rawKey === legacyToken) {
-      req.apiKey = {
-        id: "legacy_mcp",
-        name: "Legacy MCP Token",
-        scopes: ["exec"],
-        rateLimit: 100,
-      };
-      authRequestsTotal.inc({ result: "success" });
-      return next();
-    }
-
-    const resolved = verifyKey(rawKey);
+    const resolved: ResolvedKey | null =
+      legacyToken && rawKey === legacyToken
+        ? {
+            id: "legacy_mcp",
+            name: "Legacy MCP Token",
+            scopes: ["exec"],
+            rateLimit: 100,
+          }
+        : verifyKey(rawKey);
     if (!resolved) {
       authRequestsTotal.inc({ result: "invalid_key" });
       res.status(401).json({ error: "Invalid API key" });
