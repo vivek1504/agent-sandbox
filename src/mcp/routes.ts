@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { createMcpServer } from "./server.js";
+import { assertOwnership } from "../auth/ownership.js";
 
 export const mcpRouter = Router();
 
@@ -36,11 +37,14 @@ mcpRouter.post("/messages", async (req, res) => {
     return;
   }
 
-  if (entry.ownerId && req.apiKey?.id && req.apiKey.id !== entry.ownerId) {
-    res.status(403).json({ error: "Session belongs to another API key" });
+  try {
+    assertOwnership({ ownerId: entry.ownerId }, req.apiKey?.id);
+  } catch (err: any) {
+    res.status(err.statusCode ?? 403).json({ error: err.message });
     return;
   }
 
   await entry.transport.handlePostMessage(req, res);
 });
+
 
