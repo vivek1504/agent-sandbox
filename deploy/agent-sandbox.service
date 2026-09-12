@@ -1,0 +1,41 @@
+[Unit]
+Description=agent-sandbox — Firecracker microVM execution sandbox
+Documentation=https://github.com/vivek1504/agent-sandbox
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=@PROJECT_ROOT@
+
+# Absolute interpreter path on purpose: systemd does not read a login shell, so
+# a node installed under a user home (nvm, fnm, volta) is not on PATH here — the
+# same reason `sudo npm start` fails on those hosts.
+ExecStart=@NODE_BIN@ dist/server.js
+
+# Root is required: the jailer builds chroots, cgroups and network namespaces.
+User=root
+
+EnvironmentFile=/etc/agent-sandbox/sandbox.env
+
+Restart=on-failure
+RestartSec=5s
+
+# A VM that outlives its parent leaks a jail directory and a network slot.
+KillMode=mixed
+KillSignal=SIGTERM
+# The server drains sessions on SIGTERM and force-exits after 30s; give it room.
+TimeoutStopSec=45s
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=agent-sandbox
+
+# Guests are isolated by the microVM boundary, not by these; they only limit the
+# supervising process. NoNewPrivileges and ProtectSystem are deliberately absent
+# because the jailer needs to create device nodes and mount namespaces.
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
