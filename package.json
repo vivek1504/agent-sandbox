@@ -30,7 +30,6 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "axios": "^1.13.6",
     "express": "^5.2.1",
-    "netlink": "^0.3.0",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "prom-client": "^15.1.3",
